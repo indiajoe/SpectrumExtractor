@@ -212,10 +212,10 @@ def RectifyCurvedApertures(SpectrumFile,Twidth,
         
         # Now use Bandlimited inteprolation to find values at the mapped pixels.
         # Initiate the interpolator
-        BL2D = BandLimited2DInterpolator(filter_sizeX = 23,filter_sizeY = 23, kaiserBX=6, kaiserBY=6)
+        BL2D = BandLimited2DInterpolator(filter_sizeX = 31,filter_sizeY = 31, kaiserBX=5, kaiserBY=5)
         # We need only the relevent strip of image data in Dispersion direction
-        XDstart = max(0, int(np.min(XDCoords) - 20))
-        XDend = min(ImageArray.shape[0], int(np.max(XDCoords) + 20))
+        XDstart = max(0, int(np.min(XDCoords) - 17))
+        XDend = min(ImageArray.shape[0], int(np.max(XDCoords) + 17))
         ImageArrayStrip = ImageArray[XDstart:XDend,:]
         NewXCoo = XDCoords.flatten() - XDstart
         NewYCoo = DCoords.flatten()
@@ -258,7 +258,7 @@ def main():
     FlatFile = '/media/diskusers/ExtHDisk/joe/HPFSimulation/Kyle/input_data.fits'
     SpectrumFile = '/media/diskusers/ExtHDisk/joe/HPFSimulation/Kyle/input_data.fits'
     # Adaptively threshold the Flat to obtain the aperture masks
-    FlatThresholdM = ImageThreshold(FlatFile,bsize=401,offset=0,minarea=1000, ShowPlot=True)
+    FlatThresholdM = ImageThreshold(FlatFile,bsize=101,offset=0,minarea=1000, ShowPlot=True)
     # Label the apertures
     ApertureLabel = LabelDisjointRegions(FlatThresholdM,DirectlyEnterRelabel= True)
     # Trace the center of the pertures
@@ -270,7 +270,7 @@ def main():
     SlitShearFuncDic = Get_SlitShearFunction(ApertureCenters)
 
     # Get rectified 2D spectrum of each aperture of the spectrum file
-    RectifiedSpectrum = RectifyCurvedApertures(SpectrumFile,(-30,+30),
+    RectifiedSpectrum = RectifyCurvedApertures(SpectrumFile,(-8,+8),
                                                ApertureTraceFuncDic,SlitShearFuncDic,
                                                dispersion_Xaxis = True)
     
