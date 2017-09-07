@@ -228,6 +228,31 @@ def RectifyCurvedApertures(SpectrumFile,Twidth,
     return RectifiedApertureDic
 
 
+def SumApertures(RectifiedApertureDic, apwindow=(None,None), apertures=None, ShowPlot=False):
+    """ Returns the sum of each rectified aperture inside the apwindow .
+    If lower bound or upper bound of apwindow is None, sumation will be from 
+    the begining or till the end of the XD axis of aperture array respectively"""
+    ApertureSumDic = {}
+    if apertures is None : 
+        apertures = RectifiedApertureDic.keys()
+    
+    for aper in apertures:
+        Llimit = -int(RectifiedApertureDic[aper].shape[1]/2.0) if apwindow[0] is None else apwindow[0]
+        Ulimit = int(RectifiedApertureDic[aper].shape[1]/2.0) if apwindow[1] is None else apwindow[1]
+        Lindx = int(RectifiedApertureDic[aper].shape[1]/2.0) + Llimit
+        Uindx = int(RectifiedApertureDic[aper].shape[1]/2.0) + Ulimit
+        
+
+        ApertureSumDic[aper] = np.sum(RectifiedApertureDic[aper][:,Lindx:Uindx],axis=1)
+        if ShowPlot:
+            plt.plot(ApertureSumDic[aper])
+            plt.ylabel('Sum of Counts')
+            plt.xlabel('pixels')
+            plt.title('Aperture : {0}'.format(aper))
+            plt.show()
+
+    return ApertureSumDic
+
 def main():
     """ Extracts 2D spectrum image into 1D spectrum """
     FlatFile = '/media/diskusers/ExtHDisk/joe/HPFSimulation/Kyle/input_data.fits'
@@ -249,6 +274,9 @@ def main():
                                                ApertureTraceFuncDic,SlitShearFuncDic,
                                                dispersion_Xaxis = True)
     
+    # Sum the flux in XD direction of slit
+    SumApFluxSpectrum = SumApertures(RectifiedSpectrum, apwindow=(-6,6), ShowPlot=True)
+
 
 # if __name__ == '__main__':
 #     main()
