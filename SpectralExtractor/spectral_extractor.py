@@ -9,6 +9,7 @@ from skimage import morphology
 from scipy import ndimage
 import scipy.interpolate as interp
 import scipy.optimize as optimize
+from functools32 import partial
 from RVEstimator.interpolators import BandLimited2DInterpolator
 
 
@@ -167,7 +168,7 @@ def Get_ApertureTraceFunction(ApertureCenters,deg=4):
         # fit Chebyshev polynomial to the data to obtain cheb coeffs
         cc = np.polynomial.chebyshev.chebfit(ApertureCenters[aper][0,:], 
                                               ApertureCenters[aper][1,:], deg)
-        ApertureTraceFuncDic[aper] = lambda x : numpy.polynomial.chebyshev.chebval(x, cc) 
+        ApertureTraceFuncDic[aper] = partial(np.polynomial.chebyshev.chebval, c= cc) 
 
     return ApertureTraceFuncDic
 
