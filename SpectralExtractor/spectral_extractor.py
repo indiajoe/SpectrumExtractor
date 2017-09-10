@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 """ This tool is to extract 1D spectrum form a 2D image """
+import argparse
+import sys
+import os
 import numpy as np
 import numpy.ma
 from astropy.io import fits
@@ -253,17 +256,58 @@ def SumApertures(RectifiedApertureDic, apwindow=(None,None), apertures=None, Sho
 
     return ApertureSumDic
 
+def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, fitsheader=None):
+    """ Writes the FluxSpectrumDic into fits image with filename outfilename 
+    with fitsheader as header."""
+    # First create a 2D array to hold all apertures of the spectrum
+    Spectrumarray = np.array([FluxSpectrumDic[i] for i in sorted(FluxSpectrumDic.keys())])
+    hdu = fits.PrimaryHDU(Spectrumarray,header=fitsheader)
+    hdu.writeto(outfilename)
+    return outfilename
+
+
+def parse_args():
+    """ Parses the command line input arguments """
+    parser = argparse.ArgumentParser(description="Spectral Extraction Tool")
+    parser.add_argument('SpectrumFile', type=str,
+                        help="The 2D Spectrum image fits file")
+    # parser.add_argument('ConfigFile', type=str,
+    #                     help="Configuration file which contains settings for extraction")
+    parser.add_argument('--FlatFile', type=str, default=None,
+                        help="Flat continuum source to be used for aperture extraction")
+    parser.add_argument('--ApertureLabel', type=str, default=None,
+                        help="Array of labels for the aperture trace regions")
+    parser.add_argument('OutputFile', type=str, 
+                        help="Output filename to write extracted spectrum")
+    args = parser.parse_args()
+    return args
+
 def main():
     """ Extracts 2D spectrum image into 1D spectrum """
-    FlatFile = '/media/diskusers/ExtHDisk/joe/HPFSimulation/Kyle/input_data.fits'
-    SpectrumFile = '/media/diskusers/ExtHDisk/joe/HPFSimulation/Kyle/input_data.fits'
-    # Adaptively threshold the Flat to obtain the aperture masks
-    FlatThresholdM = ImageThreshold(FlatFile,bsize=101,offset=0,minarea=1000, ShowPlot=True)
-    # Label the apertures
-    ApertureLabel = LabelDisjointRegions(FlatThresholdM,DirectlyEnterRelabel= True)
-    # Trace the center of the pertures
+    args = parse_args()
+    # Config = create_configdict_from_file(args.ConfigFile)
+
+    SpectrumFile = args.SpectrumFile
+    FlatFile = args.FlatFile
+    OutputFile = args.OutputFile
+
+    if os.path.isfile(OutputFile):
+        print('WARNING: Output file {0} already exist'.format(OutputFile))
+        print('Skipping this image extraction..')
+        sys.exit(1)
+
+    print('Extracting {0}..'.format(SpectrumFile))
+    if args.ApertureLabel is None:
+        # Adaptively threshold the Flat to obtain the aperture masks
+        FlatThresholdM = ImageThreshold(FlatFile,bsize=101,offset=0,minarea=1000, ShowPlot=True)
+        # Label the apertures
+        ApertureLabel = LabelDisjointRegions(FlatThresholdM,DirectlyEnterRelabel= True)
+    else:
+        ApertureLabel = np.load(args.ApertureLabel)
+
+    # Trace the center of the apertures
     ApertureCenters = FitApertureCenters(FlatFile,ApertureLabel,apwindow=(-7,+7),
-                                         dispersion_Xaxis = True, ShowPlot=True)
+                                         dispersion_Xaxis = True, ShowPlot=False)
     # Obtain the tracing function of each aperture
     ApertureTraceFuncDic = Get_ApertureTraceFunction(ApertureCenters,deg=4)
     # Obtain the Slit Shear of each order 
@@ -275,8 +319,13 @@ def main():
                                                dispersion_Xaxis = True)
     
     # Sum the flux in XD direction of slit
-    SumApFluxSpectrum = SumApertures(RectifiedSpectrum, apwindow=(-6,6), ShowPlot=True)
+    SumApFluxSpectrum = SumApertures(RectifiedSpectrum, apwindow=(-6,6), ShowPlot=False)
 
+    # Write the extracted spectrum to output fits file
+    fheader = fits.getheader(SpectrumFile)
+    fheader['HISTORY'] = 'Extracted spectrum to 1D'
+    _ = WriteFitsFileSpectrum(SumApFluxSpectrum, OutputFile, fitsheader=fheader)
+    print('Extracted {0} => {1} output file'.format(SpectrumFile,OutputFile))
 
-# if __name__ == '__main__':
-#     main()
+if __name__ == '__main__':
+    main()
