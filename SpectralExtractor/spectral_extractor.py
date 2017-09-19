@@ -273,8 +273,10 @@ def parse_args():
                         help="The 2D Spectrum image fits file")
     # parser.add_argument('ConfigFile', type=str,
     #                     help="Configuration file which contains settings for extraction")
-    parser.add_argument('--FlatFile', type=str, default=None,
-                        help="Flat continuum source to be used for aperture extraction")
+    parser.add_argument('--FlatNFile', type=str, default=None,
+                        help="Normalized Flat file to be used for correcting pixel to pixel variation")
+    parser.add_argument('--ContinuumFile', type=str, default=None,
+                        help="Continuum flat source to be used for aperture extraction")
     parser.add_argument('--ApertureLabel', type=str, default=None,
                         help="Array of labels for the aperture trace regions")
     parser.add_argument('OutputFile', type=str, 
@@ -288,7 +290,8 @@ def main():
     # Config = create_configdict_from_file(args.ConfigFile)
 
     SpectrumFile = args.SpectrumFile
-    FlatFile = args.FlatFile
+    ContinuumFile = args.ContinuumFile
+    NFlatFile = args.FlatNFile
     OutputFile = args.OutputFile
 
     if os.path.isfile(OutputFile):
@@ -298,20 +301,26 @@ def main():
 
     print('Extracting {0}..'.format(SpectrumFile))
     if args.ApertureLabel is None:
-        # Adaptively threshold the Flat to obtain the aperture masks
-        FlatThresholdM = ImageThreshold(FlatFile,bsize=101,offset=0,minarea=1000, ShowPlot=True)
+        # Adaptively threshold the ContinuumFile Flat to obtain the aperture masks
+        CFlatThresholdM = ImageThreshold(ContinuumFile,bsize=101,offset=0,minarea=1000, ShowPlot=True)
         # Label the apertures
-        ApertureLabel = LabelDisjointRegions(FlatThresholdM,DirectlyEnterRelabel= True)
+        ApertureLabel = LabelDisjointRegions(CFlatThresholdM,DirectlyEnterRelabel= True)
     else:
         ApertureLabel = np.load(args.ApertureLabel)
 
     # Trace the center of the apertures
-    ApertureCenters = FitApertureCenters(FlatFile,ApertureLabel,apwindow=(-7,+7),
+    ApertureCenters = FitApertureCenters(ContinuumFile,ApertureLabel,apwindow=(-7,+7),
                                          dispersion_Xaxis = True, ShowPlot=False)
     # Obtain the tracing function of each aperture
     ApertureTraceFuncDic = Get_ApertureTraceFunction(ApertureCenters,deg=4)
     # Obtain the Slit Shear of each order 
     SlitShearFuncDic = Get_SlitShearFunction(ApertureCenters)
+
+    # Apply flat correction for pixel to pixel variation
+    if NFlatFile is not None:
+        print('Doing Flat correction..')
+        NFlat = fits.getdata(NFlatFile)
+        SpectrumFile = fits.getdata(SpectrumFile)/NFlat
 
     # Get rectified 2D spectrum of each aperture of the spectrum file
     RectifiedSpectrum = RectifyCurvedApertures(SpectrumFile,(-8,+8),
