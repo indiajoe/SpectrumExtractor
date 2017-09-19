@@ -13,6 +13,7 @@ from scipy import ndimage
 import scipy.interpolate as interp
 import scipy.optimize as optimize
 from functools32 import partial
+import pickle
 from RVEstimator.interpolators import BandLimited2DInterpolator
 
 
@@ -308,22 +309,32 @@ def main():
     else:
         ApertureLabel = np.load(args.ApertureLabel)
 
-    # Trace the center of the apertures
-    ApertureCenters = FitApertureCenters(ContinuumFile,ApertureLabel,apwindow=(-7,+7),
-                                         dispersion_Xaxis = True, ShowPlot=False)
+    if os.path.isfile(ContinuumFile+'_trace.pkl'):
+        print('Loading existing trace coordinates {0}'.format(ContinuumFile+'_trace.pkl'))
+        ApertureCenters = pickle.load(open(ContinuumFile+'_trace.pkl','rb'))
+    else:
+        # Trace the center of the apertures
+        ApertureCenters = FitApertureCenters(ContinuumFile,ApertureLabel,apwindow=(-7,+7),
+                                             dispersion_Xaxis = True, ShowPlot=False)
+        #Save for future
+        with open(ContinuumFile+'_trace.pkl','wb') as tracepickle:
+            pickle.dump(ApertureCenters,tracepickle)
+
     # Obtain the tracing function of each aperture
     ApertureTraceFuncDic = Get_ApertureTraceFunction(ApertureCenters,deg=4)
     # Obtain the Slit Shear of each order 
     SlitShearFuncDic = Get_SlitShearFunction(ApertureCenters)
 
+    # Load the spectrum array 
+    SpectrumImage = fits.getdata(SpectrumFile)
     # Apply flat correction for pixel to pixel variation
     if NFlatFile is not None:
         print('Doing Flat correction..')
         NFlat = fits.getdata(NFlatFile)
-        SpectrumFile = fits.getdata(SpectrumFile)/NFlat
+        SpectrumImage /= NFlat
 
     # Get rectified 2D spectrum of each aperture of the spectrum file
-    RectifiedSpectrum = RectifyCurvedApertures(SpectrumFile,(-8,+8),
+    RectifiedSpectrum = RectifyCurvedApertures(SpectrumImage,(-8,+8),
                                                ApertureTraceFuncDic,SlitShearFuncDic,
                                                dispersion_Xaxis = True)
     
