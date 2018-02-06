@@ -180,7 +180,7 @@ def Get_SlitShearFunction(ApertureCenters):
     """ Returns dictionary of the Dispersion direction shear coefficent for the slit """
     ApertureSlitShearFuncDic = {}
     for aper in ApertureCenters:
-        ApertureSlitShearFuncDic[aper] = lambda x : x*0 # TODO: update with a proper function
+        ApertureSlitShearFuncDic[aper] = lambda x : x*0 #- 0.0351 # -0.0351 was for the tilt in HE at Oct Cooldown at HET
  
     return ApertureSlitShearFuncDic
 
@@ -228,7 +228,6 @@ def RectifyCurvedApertures(SpectrumFile,Twidth,
         
         # Reshape back the flattned values to 2D array
         RectifiedApertureDic[aper] = Interpolated_values.reshape(XDCoords.shape)
-
     return RectifiedApertureDic
 
 
@@ -301,24 +300,32 @@ def main():
         sys.exit(1)
 
     print('Extracting {0}..'.format(SpectrumFile))
-    if args.ApertureLabel is None:
+    fheader = fits.getheader(SpectrumFile)
+
+    if os.path.isfile(str(args.ApertureLabel)):
+        ApertureLabel = np.load(args.ApertureLabel)
+    else:
         # Adaptively threshold the ContinuumFile Flat to obtain the aperture masks
-        CFlatThresholdM = ImageThreshold(ContinuumFile,bsize=101,offset=0,minarea=1000, ShowPlot=True)
+        CFlatThresholdM = ImageThreshold(ContinuumFile,bsize=51,offset=0,minarea=1000, ShowPlot=True)
         # Label the apertures
         ApertureLabel = LabelDisjointRegions(CFlatThresholdM,DirectlyEnterRelabel= True)
-    else:
-        ApertureLabel = np.load(args.ApertureLabel)
+        # Save the aperture label if a non existing filename was provided as input
+        if isinstance(args.ApertureLabel,str):
+            np.save(args.ApertureLabel,ApertureLabel)
 
-    if os.path.isfile(ContinuumFile+'_trace.pkl'):
-        print('Loading existing trace coordinates {0}'.format(ContinuumFile+'_trace.pkl'))
-        ApertureCenters = pickle.load(open(ContinuumFile+'_trace.pkl','rb'))
+    ApertureTraceFilename = ContinuumFile+'_trace.pkl'
+    if os.path.isfile(ApertureTraceFilename):
+        print('Loading existing trace coordinates {0}'.format(ApertureTraceFilename))
+        ApertureCenters = pickle.load(open(ApertureTraceFilename,'rb'))
     else:
         # Trace the center of the apertures
         ApertureCenters = FitApertureCenters(ContinuumFile,ApertureLabel,apwindow=(-7,+7),
                                              dispersion_Xaxis = True, ShowPlot=False)
         #Save for future
-        with open(ContinuumFile+'_trace.pkl','wb') as tracepickle:
+        with open(ApertureTraceFilename,'wb') as tracepickle:
             pickle.dump(ApertureCenters,tracepickle)
+
+    fheader['APFILE'] = (os.path.basename(ApertureTraceFilename), 'Aperture Trace Filename')
 
     # Obtain the tracing function of each aperture
     ApertureTraceFuncDic = Get_ApertureTraceFunction(ApertureCenters,deg=4)
@@ -342,7 +349,6 @@ def main():
     SumApFluxSpectrum = SumApertures(RectifiedSpectrum, apwindow=(-6,6), ShowPlot=False)
 
     # Write the extracted spectrum to output fits file
-    fheader = fits.getheader(SpectrumFile)
     fheader['HISTORY'] = 'Extracted spectrum to 1D'
     _ = WriteFitsFileSpectrum(SumApFluxSpectrum, OutputFile, fitsheader=fheader)
     print('Extracted {0} => {1} output file'.format(SpectrumFile,OutputFile))
