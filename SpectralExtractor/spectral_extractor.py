@@ -14,6 +14,7 @@ import scipy.interpolate as interp
 import scipy.optimize as optimize
 from functools32 import partial
 import pickle
+from ccdproc import cosmicray_lacosmic 
 from RVEstimator.interpolators import BandLimited2DInterpolator
 
 
@@ -376,6 +377,9 @@ def main():
         SpectrumImage = fix_badpixels(SpectrumImage,BPMask)
         fheader['BPMASK'] = (os.path.basename(BadPixMaskFile), 'Bad Pixel Mask File')
         fheader['HISTORY'] = 'Fixed the bad pixels in the image'
+        # Also use cosmic_lacomic to fix any spiky CR hits in data
+        SpectrumImage , cmask = cosmicray_lacosmic(SpectrumImage,sigclip=5,gain=fheader['EXPLNDR'])
+        fheader['LACOSMI'] = (np.sum(cmask),'Number of CR pixel fix by L.A. Cosmic')
         
     # Get rectified 2D spectrum of each aperture of the spectrum file
     RectifiedSpectrum = RectifyCurvedApertures(SpectrumImage,(-8,+8),
