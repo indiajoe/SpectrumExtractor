@@ -256,6 +256,29 @@ def SumApertures(RectifiedApertureDic, apwindow=(None,None), apertures=None, Sho
 
     return ApertureSumDic
 
+def fix_badpixels(SpectrumImage,BPMask,replace_with_nan=False):
+    """ Applies the bad mask (BPMask) on to the SpectrumImage to fix it """
+    Mask = BPMask == 0
+    if replace_with_nan:
+        # No fixing to do. Just replace the pixels with np.nan
+        SpectrumImage[Mask] = np.nan
+    else:
+        # Interpolate the values
+        labeled_array, num_regions = ndimage.label(Mask)
+        for region in range(1,num_regions+1):
+            Xc,Yc = np.where(labeled_array==region)
+            # Cut of a small tile with 4 pix border to speed up the interpolation
+            TileX, TileY = np.meshgrid(range(np.min(Xc)-4,np.max(Xc)+4),range(np.min(Yc)-4,np.max(Yc)+4),indexing='ij')
+            FullCoordsSet = set(zip(TileX.flatten(), TileY.flatten()))
+            GoodPixelXY = np.array(list(FullCoordsSet - set(zip(*np.where(labeled_array != 0)))))
+            # Create an interpolator to interpolate
+            LinInterp = interp.LinearNDInterpolator(GoodPixelXY,SpectrumImage[GoodPixelXY[:,0],GoodPixelXY[:,1]])
+            # Fill the values with the interpolated pixels
+            SpectrumImage[Xc,Yc] = LinInterp(np.array([Xc,Yc]).T)
+
+    return SpectrumImage
+            
+
 def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, fitsheader=None):
     """ Writes the FluxSpectrumDic into fits image with filename outfilename 
     with fitsheader as header."""
@@ -275,6 +298,8 @@ def parse_args():
     #                     help="Configuration file which contains settings for extraction")
     parser.add_argument('--FlatNFile', type=str, default=None,
                         help="Normalized Flat file to be used for correcting pixel to pixel variation")
+    parser.add_argument('--BadPixMask', type=str, default=None,
+                        help="Bad Pixel Mask file to be used for fixing bad pixels")
     parser.add_argument('--ContinuumFile', type=str, default=None,
                         help="Continuum flat source to be used for aperture extraction")
     parser.add_argument('--ApertureLabel', type=str, default=None,
@@ -292,7 +317,9 @@ def main():
     SpectrumFile = args.SpectrumFile
     ContinuumFile = args.ContinuumFile
     NFlatFile = args.FlatNFile
+    BadPixMaskFile = args.BadPixMask
     OutputFile = args.OutputFile
+    
 
     if os.path.isfile(OutputFile):
         print('WARNING: Output file {0} already exist'.format(OutputFile))
@@ -339,7 +366,17 @@ def main():
         print('Doing Flat correction..')
         NFlat = fits.getdata(NFlatFile)
         SpectrumImage /= NFlat
+        fheader['FLATFIL'] = (os.path.basename(NFlatFile), 'Flat Filename')
+        fheader['HISTORY'] = 'Flat fielded the image'
 
+    # Apply bad pixel correction
+    if BadPixMaskFile is not None:
+        print('Doing Bad pixel correction..')
+        BPMask = fits.getdata(BadPixMaskFile)
+        SpectrumImage = fix_badpixels(SpectrumImage,BPMask)
+        fheader['BPMASK'] = (os.path.basename(BadPixMaskFile), 'Bad Pixel Mask File')
+        fheader['HISTORY'] = 'Fixed the bad pixels in the image'
+        
     # Get rectified 2D spectrum of each aperture of the spectrum file
     RectifiedSpectrum = RectifyCurvedApertures(SpectrumImage,(-8,+8),
                                                ApertureTraceFuncDic,SlitShearFuncDic,
