@@ -68,6 +68,11 @@ def LabelDisjointRegions(mask,DirectlyEnterRelabel= False):
 
     else:
         plt.imshow(labeled_array)
+        # Show the current labels of the regions
+        # for label in np.unique(labeled_array):
+        #     Xcenter = np.mean(np.where(labeled_array == label)[0])
+        #     Ycenter = np.mean(np.where(labeled_array == label)[1])
+        #     plt.text(Xcenter,Ycenter,str(label))
         plt.colorbar()
         plt.show(block=False)
         NewLabeledArray = np.zeros(labeled_array.shape)
@@ -102,6 +107,15 @@ def LabelDisjointRegions(mask,DirectlyEnterRelabel= False):
 def errorfuncProfileFit(p,psf=None,xdata=None, ydata=None):
     """ Error function to minimise the profile psf(xdata) fit on to ydata """
     return p[0]*psf(xdata-p[1]) - ydata
+
+def boundvalue(x,ll,ul):
+    """ Returns x if ll< x < ul. Else the limit values """
+    if ll < x < ul:
+        return x
+    elif x < ll:
+        return ll
+    elif x > ul :
+        return ul
 
 def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
                            apwindow=(-7,+7),dispersion_Xaxis = True, ShowPlot=False):
@@ -152,7 +166,7 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
             # initial estimate
             p0 = [ampl,xd[len(xd)/2]]
             p,ier = optimize.leastsq(errorfuncProfileFit, p0, args=(psf,xd,flux))
-            CenterXDcoo.append(p[1])
+            CenterXDcoo.append(boundvalue(p[1],np.min(xd),np.max(xd))) # use the boundry values incase the fitted p[1] is outside the bounds 
             ampl = p[0] # update with the lastest amplitude estimate
 
         ApertureCenters[aper] = np.array([dpix,CenterXDcoo])
@@ -269,7 +283,12 @@ def fix_badpixels(SpectrumImage,BPMask,replace_with_nan=False):
         for region in range(1,num_regions+1):
             Xc,Yc = np.where(labeled_array==region)
             # Cut of a small tile with 4 pix border to speed up the interpolation
-            TileX, TileY = np.meshgrid(range(np.min(Xc)-4,np.max(Xc)+4),range(np.min(Yc)-4,np.max(Yc)+4),indexing='ij')
+            WindowminX = np.max(( np.min(Xc)-4, 0))
+            WindowmaxX = np.min(( np.max(Xc)+4, SpectrumImage.shape[0]))
+            WindowminY = np.max(( np.min(Yc)-4, 0))
+            WindowmaxY = np.min(( np.max(Yc)+4, SpectrumImage.shape[1]))
+            TileX, TileY = np.meshgrid(range(WindowminX,WindowmaxX),range(WindowminY,WindowmaxY),indexing='ij')
+            # TileX, TileY = np.meshgrid(range(np.min(Xc)-4,np.max(Xc)+4),range(np.min(Yc)-4,np.max(Yc)+4),indexing='ij')
             FullCoordsSet = set(zip(TileX.flatten(), TileY.flatten()))
             GoodPixelXY = np.array(list(FullCoordsSet - set(zip(*np.where(labeled_array != 0)))))
             # Create an interpolator to interpolate
