@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """ This tool is to extract 1D spectrum form a 2D image """
 import argparse
+import ConfigParser
 import sys
 import os
 import numpy as np
@@ -308,14 +309,48 @@ def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, fitsheader=None):
     hdu.writeto(outfilename)
     return outfilename
 
+#######################################################################################
+def parse_str_to_types(string):
+    """ Converts string to different object types they represent.
+    Supported formats: True,Flase,None,int,float,list,tuple"""
+    if string == 'True':
+        return True
+    elif string == 'False':
+        return False
+    elif string == 'None':
+        return None
+    elif string.lstrip('-+ ').isdigit():
+        return int(string)
+    elif (string[0] in '[(') and (string[-1] in ')]'): # Recursively parse a list/tuple into a list
+        return [parse_str_to_types(s) for s in string.strip('()[]').split(',')]
+    else:
+        try:
+            return float(string)
+        except ValueError:
+            return string
+        
+        
+
+def create_configdict_from_file(configfilename):
+    """ Returns a configuration object by loading the config file """
+    Configloader = ConfigParser.SafeConfigParser()
+    Configloader.optionxform = str  # preserve the Case sensitivity of keys
+    Configloader.read(configfilename)
+    # Create a Config Dictionary
+    Config = {}
+    for key,value in Configloader.items('processing_settings'):
+        Config[key] = parse_str_to_types(value)
+    for key,value in Configloader.items('extraction_settings'):
+        Config[key] = parse_str_to_types(value)
+    return Config
 
 def parse_args():
     """ Parses the command line input arguments """
     parser = argparse.ArgumentParser(description="Spectral Extraction Tool")
     parser.add_argument('SpectrumFile', type=str,
                         help="The 2D Spectrum image fits file")
-    # parser.add_argument('ConfigFile', type=str,
-    #                     help="Configuration file which contains settings for extraction")
+    parser.add_argument('ConfigFile', type=str,
+                         help="Configuration file which contains settings for extraction")
     parser.add_argument('--FlatNFile', type=str, default=None,
                         help="Normalized Flat file to be used for correcting pixel to pixel variation")
     parser.add_argument('--BadPixMask', type=str, default=None,
@@ -332,14 +367,20 @@ def parse_args():
 def main():
     """ Extracts 2D spectrum image into 1D spectrum """
     args = parse_args()
-    # Config = create_configdict_from_file(args.ConfigFile)
+    Config = create_configdict_from_file(args.ConfigFile)
 
     SpectrumFile = args.SpectrumFile
-    ContinuumFile = args.ContinuumFile
-    NFlatFile = args.FlatNFile
-    BadPixMaskFile = args.BadPixMask
     OutputFile = args.OutputFile
-    
+
+    # Override the Config file with command line arguments
+    if args.ContinuumFile is not None:
+        Config['ContinuumFile'] = args.ContinuumFile
+    if args.FlatNFile is not None:
+        Config['FlatNFile'] = args.FlatNFile
+    if args.BadPixMask is not None:
+        Config['BadPixMask'] = args.BadPixMask
+    if args.ApertureLabel is not None:
+        Config['ApertureLabel'] = args.ApertureLabel
 
     if os.path.isfile(OutputFile):
         print('WARNING: Output file {0} already exist'.format(OutputFile))
@@ -349,24 +390,29 @@ def main():
     print('Extracting {0}..'.format(SpectrumFile))
     fheader = fits.getheader(SpectrumFile)
 
-    if os.path.isfile(str(args.ApertureLabel)):
-        ApertureLabel = np.load(args.ApertureLabel)
+    if os.path.isfile(str(Config['ApertureLabel'])):
+        ApertureLabel = np.load(Config['ApertureLabel'])
     else:
         # Adaptively threshold the ContinuumFile Flat to obtain the aperture masks
-        CFlatThresholdM = ImageThreshold(ContinuumFile,bsize=51,offset=0,minarea=1000, ShowPlot=True)
+        CFlatThresholdM = ImageThreshold(Config['ContinuumFile'],bsize=51,offset=0,minarea=2000, ShowPlot=True)
+
+        if Config['BadPixMask'] is not None:
+            BPMask = np.load(Config['BadPixMask']) # fits.getdata(Config['BadPixMask'])
+            # Remove bad pixels from Thresholded image
+            CFlatThresholdM[~BPMask] = False
         # Label the apertures
         ApertureLabel = LabelDisjointRegions(CFlatThresholdM,DirectlyEnterRelabel= True)
         # Save the aperture label if a non existing filename was provided as input
-        if isinstance(args.ApertureLabel,str):
-            np.save(args.ApertureLabel,ApertureLabel)
+        if isinstance(Config['ApertureLabel'],str):
+            np.save(Config['ApertureLabel'],ApertureLabel)
 
-    ApertureTraceFilename = ContinuumFile+'_trace.pkl'
+    ApertureTraceFilename = Config['ContinuumFile']+'_trace.pkl'
     if os.path.isfile(ApertureTraceFilename):
         print('Loading existing trace coordinates {0}'.format(ApertureTraceFilename))
         ApertureCenters = pickle.load(open(ApertureTraceFilename,'rb'))
     else:
         # Trace the center of the apertures
-        ApertureCenters = FitApertureCenters(ContinuumFile,ApertureLabel,apwindow=(-7,+7),
+        ApertureCenters = FitApertureCenters(Config['ContinuumFile'],ApertureLabel,apwindow=(-7,+7),
                                              dispersion_Xaxis = True, ShowPlot=False)
         #Save for future
         with open(ApertureTraceFilename,'wb') as tracepickle:
@@ -382,19 +428,19 @@ def main():
     # Load the spectrum array 
     SpectrumImage = fits.getdata(SpectrumFile)
     # Apply flat correction for pixel to pixel variation
-    if NFlatFile is not None:
+    if Config['FlatNFile'] is not None:
         print('Doing Flat correction..')
-        NFlat = fits.getdata(NFlatFile)
+        NFlat = fits.getdata(Config['FlatNFile'])
         SpectrumImage /= NFlat
-        fheader['FLATFIL'] = (os.path.basename(NFlatFile), 'Flat Filename')
+        fheader['FLATFIL'] = (os.path.basename(Config['FlatNFile']), 'Flat Filename')
         fheader['HISTORY'] = 'Flat fielded the image'
 
     # Apply bad pixel correction
-    if BadPixMaskFile is not None:
         print('Doing Bad pixel correction..')
         BPMask = fits.getdata(BadPixMaskFile)
         SpectrumImage = fix_badpixels(SpectrumImage,BPMask)
-        fheader['BPMASK'] = (os.path.basename(BadPixMaskFile), 'Bad Pixel Mask File')
+    if Config['BadPixMask'] is not None:
+        fheader['BPMASK'] = (os.path.basename(Config['BadPixMask']), 'Bad Pixel Mask File')
         fheader['HISTORY'] = 'Fixed the bad pixels in the image'
         # Also use cosmic_lacomic to fix any spiky CR hits in data
         SpectrumImage , cmask = cosmicray_lacosmic(SpectrumImage,sigclip=5,gain=fheader['EXPLNDR'])
