@@ -765,16 +765,22 @@ def main():
         fheader['HISTORY'] = 'Flat fielded the image'
 
     # Apply bad pixel correction
-        print('Doing Bad pixel correction..')
-        BPMask = fits.getdata(BadPixMaskFile)
-        SpectrumImage = fix_badpixels(SpectrumImage,BPMask)
     if Config['BadPixMask'] is not None:
+        print('Doing Bad pixel correction..')
+        BPMask = fits.getdata(Config['BadPixMask']) if Config['BadPixMask'][-5:] == '.fits' else np.load(Config['BadPixMask'])
+        SpectrumImage = fix_badpixels(SpectrumImage,BPMask)
         fheader['BPMASK'] = (os.path.basename(Config['BadPixMask']), 'Bad Pixel Mask File')
         fheader['HISTORY'] = 'Fixed the bad pixels in the image'
-        # Also use cosmic_lacomic to fix any spiky CR hits in data
-        SpectrumImage , cmask = cosmicray_lacosmic(SpectrumImage,sigclip=5,gain=fheader['EXPLNDR'])
+
+    # Also use cosmic_lacomic to fix any spiky CR hits in data
+    if Config['DoCosmicRayClean']:
+        crgain = fheader[Config['CosmicRayCleanGain']] if isinstance(Config['CosmicRayCleanGain'],str) else Config['CosmicRayCleanGain']
+        SpectrumImage , cmask = cosmicray_lacosmic(SpectrumImage,
+                                                   sigclip=Config['CosmicRayCleanSigclip'],
+                                                   gain=crgain)
         fheader['LACOSMI'] = (np.sum(cmask),'Number of CR pixel fix by L.A. Cosmic')
-        
+        fheader['HISTORY'] = 'Fixed the CosmicRays using LACosmic'
+
     if Config['RectificationMethod'] == 'Bandlimited':
         print('Doing Rectification :{0}'.format(Config['RectificationMethod']))
         # Get rectified 2D spectrum of each aperture of the spectrum file
