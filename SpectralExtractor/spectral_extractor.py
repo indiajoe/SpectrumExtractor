@@ -1,11 +1,9 @@
 #!/usr/bin/env python
 """ This tool is to extract 1D spectrum form a 2D image """
 import argparse
-import ConfigParser
 import sys
 import os
 import numpy as np
-import numpy.ma
 from astropy.io import fits
 from astropy.stats import mad_std
 import matplotlib.pyplot as plt
@@ -14,11 +12,16 @@ from skimage import morphology
 from scipy import ndimage, signal
 import scipy.interpolate as interp
 import scipy.optimize as optimize
-from functools32 import partial
 import pickle
 from ccdproc import cosmicray_lacosmic 
 from RVEstimator.interpolators import BandLimited2DInterpolator
 from WavelengthCalibrationTool.recalibrate import ReCalibrateDispersionSolution, scale_interval_m1top1
+try:
+    from functools32 import partial
+    import ConfigParser
+except ImportError:
+    from functools import partial
+    import configparser as  ConfigParser
 
 
 def ImageThreshold(imgfile,bsize=401,offset=0, minarea=0,ShowPlot=False):
