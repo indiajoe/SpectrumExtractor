@@ -488,6 +488,123 @@ def SumApertures(RectifiedApertureDic, apwindow=(None,None), apertures=None, Sho
 
     return ApertureSumDic
 
+def LagrangeInterpolateArray(newX,X,Y):
+    """ Returns an interpolation at newX location using a Lagrange polynomial of order X.shape[0] on X,Y data.
+    See formula in https://en.wikipedia.org/wiki/Polynomial_interpolation#Constructing_the_interpolation_polynomial
+    Note newX should be an array of size X.shape[1] . (Or float if X and Y are 1D arrays) 
+    ie, X and Y will also be a 2D array. And the funtion will return the newX values for each of the X[:,i],Y[:,i] pairs.  
+ """
+    xmX_j = newX-X
+    TermsList = []
+    for i in range(X.shape[0]):
+        xmX_jmi = np.delete(xmX_j,i,axis=0)  # x-X_j without i=j
+        X_imX_j = X[i] - np.delete(X,i,axis=0)
+        xmX_jmi_by_X_imX_j = np.true_divide(xmX_jmi,X_imX_j)
+        Pij = np.product(xmX_jmi_by_X_imX_j,axis=0)
+        TermsList.append(Pij*Y[i])
+    return np.sum(TermsList,axis=0)
+        
+def SumSubpixelAperturewindow(ImageArrayStrip,TopEdgeCoord,BottomEdgeCoord,EdgepixelOrder):
+    """ Returns sum of the subpixel aperture window on top of ImageArrayStrip, where the window is defined by the TopEdgeCoord, BottomEdgeCoord.
+    The contribution of subpixel at the edge is calculated by LagrangeInterpolation of the cumulative flux in the pixel grid.
+    The order of the polynomial used for interpolation is determinaed by EdgepixelOrder.
+    Note: The sub-pixel aperture window width should be wider than 1 pixel.
+    INPUT:
+        ImageArrayStrip : Numpy 2D array strip, where columns are the axis along which the subpixel aperture to sum is defined.
+        TopEdgeCoord: Numpy 1D array, with the same length as columns in ImageArrayStrip, ie. ImageArrayStrip.shape[1].
+                      This array defines the top edge subpixel coordinate of the mask.
+        BottomEdgeCoord: Numpy 1D array, with the same length as columns in ImageArrayStrip, ie. ImageArrayStrip.shape[1].
+                      This array defines the bottom edge subpixel coordinate of the mask.
+                      Note:  TopEdgeCoord - BottomEdgeCoord should be > 1. i.e., The aperture window should be larger than a pixel
+        EdgepixelOrder: The order of the polynomial used for interpolation of the ub-pixel aperture on the edge pixel.
+    OUTPUTS:
+        SumArray : Numpy 1D array, which contains the sum of the flux inside th sub-pixel aperture along each column of ImageArrayStrip 
+
+    """
+
+    if np.any((TopEdgeCoord - BottomEdgeCoord) < 1):
+        raise ValueError('TopEdgeCoord - BottomEdgeCoord should be > 1. i.e., The aperture window should be larger than a pixel')
+
+    # To sum up all the pixels fully inside the aperture, create a mask 
+    Igrid,Jgrid = np.mgrid[0:ImageArrayStrip.shape[0],0:ImageArrayStrip.shape[1]]
+
+    FullyInsidePixelMask = (Igrid >= np.int_(BottomEdgeCoord)+1 ) & (Igrid <= np.int_(TopEdgeCoord)-1 )
+    FullyInsidePixelSum = np.ma.sum(np.ma.array(ImageArrayStrip,mask=~FullyInsidePixelMask),axis=0).data
+        
+    # Now calculate the interpolated flux in edge pixel
+
+    ### Below is where all the magic happens, don't mess with it without understanding what you are dealing with.
+
+    # Coorindate of pixel boundaries
+    TopEdgeXrows = np.vstack([np.int_(TopEdgeCoord)+i for i in range(-EdgepixelOrder/2,EdgepixelOrder/2 +1)])
+    # Assign the value of a pixel below to the pixel boundry
+    TopEdgeYvaluerows = np.vstack([ImageArrayStrip[np.int_(TopEdgeCoord)+i-1,np.arange(ImageArrayStrip.shape[1])] for i in range(-EdgepixelOrder/2,EdgepixelOrder/2 +1)])
+    # Calculate the cumulative sum values for interpolation
+    CumSumTopEdgeYvaluerows = np.cumsum(TopEdgeYvaluerows,axis=0)
+    # Set the value at edge of fully inside pixel to be zero
+    CumSumTopEdgeYvaluerows -= CumSumTopEdgeYvaluerows[(EdgepixelOrder+1)/2,:]
+    # Now obtain the Top edge interpolated value
+    TopEdgePixelContribution = LagrangeInterpolateArray(TopEdgeCoord,TopEdgeXrows,CumSumTopEdgeYvaluerows)
+    
+    # Simillarly get the flux contrinution from Bottom Edge as well
+    # Coorindate of pixel boundaries
+    BottomEdgeXrows = np.vstack([np.int_(BottomEdgeCoord)+i for i in range(-EdgepixelOrder/2+1,EdgepixelOrder/2 +1+1)])
+    # Assign the value of a pixel above to the pixel boundry
+    BottomEdgeYvaluerows = np.vstack([ImageArrayStrip[np.int_(BottomEdgeCoord)+i,np.arange(ImageArrayStrip.shape[1])] for i in range(-EdgepixelOrder/2+1,EdgepixelOrder/2 +1+1)])
+    # Calculate the cumulative sum values for interpolation in up to down direction
+    CumSumBottomEdgeYvaluerows = np.cumsum(BottomEdgeYvaluerows[::-1,:],axis=0)[::-1,:]
+    # Set the value at edge of fully inside pixel to be zero
+    CumSumBottomEdgeYvaluerows -= CumSumBottomEdgeYvaluerows[(EdgepixelOrder-1)/2 +1,:]
+    # Now obtain the Top edge interpolated value
+    BottomEdgePixelContribution = LagrangeInterpolateArray(BottomEdgeCoord,BottomEdgeXrows,CumSumBottomEdgeYvaluerows)
+
+    #Add both the top and bottom edge pixel contrinution to FullInside Pixel Sum
+    return FullyInsidePixelSum + TopEdgePixelContribution + BottomEdgePixelContribution
+
+def SumCurvedApertures(SpectrumFile, ApertureTraceFuncDic, apwindow=(None,None), EdgepixelOrder=3, apertures=None, dispersion_Xaxis=True, ShowPlot=False):
+    """ Returns the sum of each unrectified curved aperture inside the apwindow.
+    Input:
+      SpectrumFile: Spectrum image to rectify
+      ApertureTraceFuncDic: Dictionary of function which traces the aperture
+      EdgepixelOrder : Order of the polynomial to be used for interpolating the edge pixel
+    """
+    if isinstance(SpectrumFile,str):
+        ImageArray = fits.getdata(SpectrumFile)
+    else:
+        ImageArray = SpectrumFile
+    # Transpose the image if dispersion is not along X axis
+    if not dispersion_Xaxis:
+        ImageArray = ImageArray.T
+    
+    if apertures is None : 
+        apertures = ApertureTraceFuncDic.keys()
+    
+    ApertureSumDic = {}
+    DispCoords = np.arange(ImageArray.shape[1])
+
+    for aper in apertures:
+        # First create the pixel mapping
+        XDCoordsCenter = ApertureTraceFuncDic[aper](DispCoords)
+        # Cut out a Rectangle strip of interest for lower memory and faster calculations
+        StripStart = int(np.rint(np.min(XDCoordsCenter)+apwindow[0]-EdgepixelOrder))
+        StripEnd = int(np.rint(np.max(XDCoordsCenter)+apwindow[1]+EdgepixelOrder))
+        ImageArrayStrip = ImageArray[StripStart:StripEnd,:]
+        # New coordinates inside the Strip, Add 0.5 to convert pixel index to pixel center coordinate
+        XDCoordsCenterStrip = XDCoordsCenter - StripStart +0.5  
+        TopEdgeCoord = XDCoordsCenterStrip+apwindow[1]
+        BottomEdgeCoord = XDCoordsCenterStrip+apwindow[0]
+        # Sum the flux inside the sub-pixel aperture window
+        ApertureSumDic[aper] = SumSubpixelAperturewindow(ImageArrayStrip,TopEdgeCoord,BottomEdgeCoord,EdgepixelOrder)
+
+    if ShowPlot:
+        plt.plot(ApertureSumDic[aper])
+        plt.ylabel('Sum of Counts')
+        plt.xlabel('pixels')
+        plt.title('Aperture : {0}'.format(aper))
+        plt.show()
+
+    return ApertureSumDic        
+
 def fix_badpixels(SpectrumImage,BPMask,replace_with_nan=False):
     """ Applies the bad mask (BPMask) on to the SpectrumImage to fix it """
     Mask = BPMask == 0
@@ -658,15 +775,37 @@ def main():
         SpectrumImage , cmask = cosmicray_lacosmic(SpectrumImage,sigclip=5,gain=fheader['EXPLNDR'])
         fheader['LACOSMI'] = (np.sum(cmask),'Number of CR pixel fix by L.A. Cosmic')
         
-    # Get rectified 2D spectrum of each aperture of the spectrum file
-    RectifiedSpectrum = RectifyCurvedApertures(SpectrumImage,(-8,+8),
-                                               ApertureTraceFuncDic,SlitShearFuncDic,
-                                               dispersion_Xaxis = True)
-    
-    # Sum the flux in XD direction of slit
-    SumApFluxSpectrum = SumApertures(RectifiedSpectrum, apwindow=(-6,6), ShowPlot=False)
+    if Config['RectificationMethod'] == 'Bandlimited':
+        print('Doing Rectification :{0}'.format(Config['RectificationMethod']))
+        # Get rectified 2D spectrum of each aperture of the spectrum file
+        RectifiedSpectrum = RectifyCurvedApertures(SpectrumImage,Config['RectificationWindow'],
+                                                   ApertureTraceFuncDic,SlitShearFuncDic,
+                                                   dispersion_Xaxis = Config['dispersion_Xaxis'])         
+        if Config['ExtractionMethod'] == 'Sum':
+            # Sum the flux in XD direction of slit
+            SumApFluxSpectrum = SumApertures(RectifiedSpectrum, apwindow=Config['ApertureWindow'], 
+                                             ShowPlot=False)
+        else:
+            raise NotImplementedError('Unknown Extraction method {0}'.format(Config['ExtractionMethod']))
+    elif Config['RectificationMethod'] is None:
+        # No rectification needs to be done.
+        # Directly extract from curved data
+        if Config['ExtractionMethod'] == 'Sum':
+            # Sum the flux in XD direction of slit
+            SumApFluxSpectrum = SumCurvedApertures(SpectrumImage, ApertureTraceFuncDic, 
+                                                   apwindow=Config['ApertureWindow'], 
+                                                   EdgepixelOrder = 3,
+                                                   dispersion_Xaxis = Config['dispersion_Xaxis'],
+                                                   ShowPlot=False)
+        else:
+            raise NotImplementedError('Unknown Extraction method {0}'.format(Config['ExtractionMethod']))
+    else:
+        raise NotImplementedError('Unknown Rectification method {0}'.format(Config['RectificationMethod']))
 
     # Write the extracted spectrum to output fits file
+    fheader['RECTMETH'] = (str(Config['RectificationMethod']), 'Rectification method used')
+    fheader['EXTRMETH'] = (str(Config['ExtractionMethod']), 'Extraction method used')
+    fheader['APERTURE'] = (str(Config['ApertureWindow']), 'Aperture window used for extraction')
     fheader['HISTORY'] = 'Extracted spectrum to 1D'
     _ = WriteFitsFileSpectrum(SumApFluxSpectrum, OutputFile, fitsheader=fheader)
     print('Extracted {0} => {1} output file'.format(SpectrumFile,OutputFile))
