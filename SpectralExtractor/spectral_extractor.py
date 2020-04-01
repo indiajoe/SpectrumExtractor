@@ -7,16 +7,18 @@ import os
 import numpy as np
 import numpy.ma
 from astropy.io import fits
+from astropy.stats import mad_std
 import matplotlib.pyplot as plt
 from skimage import filters
 from skimage import morphology
-from scipy import ndimage
+from scipy import ndimage, signal
 import scipy.interpolate as interp
 import scipy.optimize as optimize
 from functools32 import partial
 import pickle
 from ccdproc import cosmicray_lacosmic 
 from RVEstimator.interpolators import BandLimited2DInterpolator
+from WavelengthCalibrationTool.recalibrate import ReCalibrateDispersionSolution, scale_interval_m1top1
 
 
 def ImageThreshold(imgfile,bsize=401,offset=0, minarea=0,ShowPlot=False):
@@ -105,13 +107,227 @@ def LabelDisjointRegions(mask,DirectlyEnterRelabel= False):
 
     return NewLabeledArray
 
+def CreateApertureLabelByThresholding(ContinuumFile,BadPixMask=None,bsize=51,offset=0,minarea=2000, ShowPlot=True,DirectlyEnterRelabel= True):
+    """ Creates an Aperture Label by Thresholding 2D image """
+    # Adaptively threshold the ContinuumFile Flat to obtain the aperture masks
+    CFlatThresholdM = ImageThreshold(ContinuumFile,bsize=bsize,offset=offset,minarea=minarea, ShowPlot=ShowPlot)
+
+    if BadPixMask is not None:
+        BPMask = np.load(BadPixMask) # fits.getdata(Config['BadPixMask'])
+        # Remove bad pixels from Thresholded image
+        CFlatThresholdM[~BPMask] = False
+    # Label the apertures
+    ApertureLabel = LabelDisjointRegions(CFlatThresholdM,DirectlyEnterRelabel=DirectlyEnterRelabel)
+    return ApertureLabel
+
+
+def NearestIndx(array,val):
+    """ Returns the nearest index for val in sorted array"""
+    return np.argmin(np.abs(array-val))
+
+
+def RefineCentriodsInSignal(data,initial_centroids,Hwindow,Xpixels=None,profile=None,sigma=None):
+    """ Returns refined centroids using data inside half width Hwindow """
+    if Xpixels is None:
+        Xpixels = np.arange(len(data))
+    if sigma is None:
+        sigma = np.sqrt(np.abs(data))
+    if profile is None:
+        # We are going to calculate the first moment, so set all negative data values to zero.
+        datacopy = data.copy() # Preserve the input data from getting changed.
+        datacopy[data<0] = 0
+        data = datacopy
+
+    NewCentroidList = []
+    NewCentroidErrorList = []
+
+    for i in range(len(initial_centroids)):
+        icent = initial_centroids[i]
+        indx = NearestIndx(Xpixels,icent)
+        if profile is None:
+            new_centroid = np.sum(data[indx-Hwindow:indx+Hwindow]*Xpixels[indx-Hwindow:indx+Hwindow])/np.sum(data[indx-Hwindow:indx+Hwindow])
+            new_centroid_err = np.sqrt(np.sum((sigma[indx-Hwindow:indx+Hwindow]*(Xpixels[indx-Hwindow:indx+Hwindow]-np.mean(Xpixels[indx-Hwindow:indx+Hwindow])))**2)/np.sum(data[indx-Hwindow:indx+Hwindow])**2)
+        else:
+            RefSpectrum = np.array([data[indx-Hwindow:indx+Hwindow],Xpixels[indx-Hwindow:indx+Hwindow]]).T
+            if isinstance(profile[0],list): # if profile is a list of list
+                newX, popt, pconv = ReCalibrateDispersionSolution(profile[i],RefSpectrum,method='p0',sigma=sigma[indx-Hwindow:indx+Hwindow],cov=True)
+            else:
+                newX, popt, pconv = ReCalibrateDispersionSolution(profile,RefSpectrum,method='p0',sigma=sigma[indx-Hwindow:indx+Hwindow],cov=True)
+            # scale the shifts from -1 to 1 domain to real pixel domain
+            new_centroid = scale_interval_m1top1(popt[1], a=min(RefSpectrum[:,0]),b=max(RefSpectrum[:,0]), inverse_scale=True)
+            new_centroid_err = scale_interval_m1top1(np.sqrt(pconv[1,1]), a=min(RefSpectrum[:,0]),b=max(RefSpectrum[:,0]), inverse_scale=True)
+
+        NewCentroidErrorList.append(new_centroid_err)
+        NewCentroidList.append(new_centroid)
+    return NewCentroidList, NewCentroidErrorList
+
+def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,avgHWindow=21,TraceHWidth=5,trace_fit_deg=4,
+                                   extrapolate_thresh=0.4,extrapolate_order=2,
+                                   dispersion_Xaxis=True,ShowPlot=True,return_trace=False):
+    """Creates the Aperture Trace labels by shifting and fitting profiles in Cross dispersion columns """
+    if isinstance(ContinuumFile  ,str):
+        ContinuumFile = fits.getdata(ContinuumFile)
+        if not dispersion_Xaxis:
+            ContinuumFile = ContinuumFile.T
+    if BadPixMask is not None:
+        BPMask = np.load(BadPixMask) # fits.getdata(Config['BadPixMask'])
+        if not dispersion_Xaxis:
+            BPMask = BPMask.T
+
+    if startLoc is None:
+        startLoc = ContinuumFile.shape[1]//2
+    # Starting labelling Reference XD cut data
+    RefXD = np.nanmedian(ContinuumFile[:,startLoc-avgHWindow:startLoc+avgHWindow],axis=1)
+    Refpixels = np.arange(len(RefXD))
+    Bkg = signal.order_filter(RefXD,domain=[True]*TraceHWidth*5,rank=int(TraceHWidth*5/10))
+    Flux = np.abs(RefXD -Bkg)
+    ThreshMask = RefXD > (Bkg + np.abs(mad_std(Flux))*6)
+    labeled_array, num_traces = ndimage.label(ThreshMask)
+    print('Detected {0} order traces'.format(num_traces))
+    LabelList = []
+    XDCenterList = []
+    for label in np.sort(np.unique(labeled_array)):
+        if label == 0: # Skip 0 label
+            continue
+        M = labeled_array==label
+        centerpix = np.sum(Flux[M]*Refpixels[M])/np.sum(Flux[M])
+        LabelList.append(label)
+        XDCenterList.append(centerpix)
+    # Refine again using the TraceHWidth window
+    XDCenterList, XDCenterList_err = RefineCentriodsInSignal(Flux,XDCenterList,TraceHWidth,Xpixels=Refpixels)
+
+    if ShowPlot:
+        plt.plot(Refpixels,Flux)
+        plt.plot(Refpixels,labeled_array)
+        plt.plot(XDCenterList,LabelList,'.')
+        plt.xlabel('XD pixels')
+        plt.ylabel('Trace labels')
+        plt.show()
+    
+    print('Trace_number     PixelCoord   PixelError')
+    print('\n'.join(['{0}  {1}  {2}'.format(l,p,e) for l,p,e in zip(LabelList,XDCenterList,XDCenterList_err)]))
+
+    print('Create a file with the label names and pixel coords to use.')
+    print('File format should be 3 columns :  OrderLabel PixelCoords PixelError')
+    print('Note: Trace labels should start with 1 and not zero')
+    uinputfile = raw_input('Enter the filename :').strip()
+    if uinputfile: #User provided input
+        with open(uinputfile,'r') as labelchangefile:
+            LabelList = []
+            XDCenterList = []
+            for entry in labelchangefile:
+                if entry[0]=='#':
+                    continue
+                entry = entry.rstrip().split()
+                if len(entry)<2:
+                    continue
+                LabelList.append(int(entry[0]))
+                XDCenterList.append(float(entry[1]))
+                XDCenterList_err.append(float(entry[2]))
+        if ShowPlot:
+            print('New labelled traces')
+            plt.plot(Refpixels,Flux)
+            plt.plot(Refpixels,labeled_array)
+            plt.plot(XDCenterList,LabelList,'.')
+            plt.xlabel('XD pixels')
+            plt.ylabel('New Trace labels')
+            plt.show()
+
+    else:
+        print('No input given. No relabelling done..')
+
+    # Create a index list sorted by the pixel error as a proxy for brightness and goodness of the line to use for extrapolation
+    SortedErrorIndices = np.argsort(XDCenterList_err)
+
+    # Now start fitting the XD cut plot across the dispersion
+
+    # Create a dictionary to save dcoordinates of each order
+    FullCoorindateOfTraceDic = {o:[[d],[xd]] for o,d,xd in zip(LabelList,[startLoc]*len(LabelList),XDCenterList)}
+
+    # First step to higher pixels from startLoc position and then step to lower positions
+    for stepDLoc in [avgHWindow,-1*avgHWindow]:
+        newDLoc = startLoc + max(1,np.abs(stepDLoc)//2)*np.sign(stepDLoc)
+        newpixels = np.arange(len(Flux))
+        newRefFlux = np.vstack([newpixels,Flux]).T
+        newRefXDCenterList = XDCenterList
+        while (newDLoc < ContinuumFile.shape[1]-avgHWindow) and (newDLoc > avgHWindow):
+            newXD = np.nanmedian(ContinuumFile[:,newDLoc-avgHWindow:newDLoc+avgHWindow],axis=1)
+            newBkg = signal.order_filter(newXD,domain=[True]*TraceHWidth*5,rank=int(TraceHWidth*5/10))
+            newFlux = np.abs(newXD -newBkg)
+            SigmaArrayWt = np.sqrt(np.abs(newFlux))
+            try:
+                shifted_pixels,fitted_driftp = ReCalibrateDispersionSolution(newFlux,
+                                                                             newRefFlux,method='p1',
+                                                                             sigma = SigmaArrayWt)
+            except (RuntimeError,ValueError) as e:
+                print(e)
+                print('Failed fitting.. Skipping {0} pixel position'.format(newDLoc))
+            else:
+                # Calculate the new pixel coordinates of previous centroids 
+                newXDCenterList = [NearestIndx(shifted_pixels,icent) for icent in newRefXDCenterList]
+                newXDCenterList, newXDCenterList_err  = RefineCentriodsInSignal(newFlux,newXDCenterList,TraceHWidth,Xpixels=newpixels)
+                # Identify poorly constrained centers and extrapolate from the nearby good points. 
+                PositionDiffArray = np.array(newXDCenterList)-np.array(XDCenterList)
+                newSortedErrorIndices = np.argsort(newXDCenterList_err)
+                for i in range(len(newSortedErrorIndices)):
+                    ic = newSortedErrorIndices[i]
+                    if newXDCenterList_err[ic] < extrapolate_thresh:
+                        continue
+                    else:
+                        # Identify nearby good points better than this bad point
+                        GoodpointsSuperArray = np.array(newSortedErrorIndices[:i])
+                        extrapolate_points_tofit = extrapolate_order *3
+                        # Find nearest extrapolate_points_tofit points fron the GoodpointsSuperList
+                        NearestGoodPoints = GoodpointsSuperArray[np.argsort(np.abs(GoodpointsSuperArray-ic))[:extrapolate_points_tofit]]
+                        print('Identified Traces {0} to extrapolate for trace {1} with error {2}'.format(NearestGoodPoints,ic,newXDCenterList_err[ic]))
+                        # Fit the polynomial to extrapolate to obtain ic trace location
+                        extrp_p = np.polyfit(NearestGoodPoints,PositionDiffArray[NearestGoodPoints],extrapolate_order)
+                        new_pos_diff = np.polyval(extrp_p,ic)
+                        PositionDiffArray[ic] = new_pos_diff
+                        newXDCenterList[ic] = XDCenterList[ic] + new_pos_diff
+                # update the Dictionary
+                for i,o in enumerate(LabelList):
+                    FullCoorindateOfTraceDic[o][0].append(newDLoc)
+                    FullCoorindateOfTraceDic[o][1].append(newXDCenterList[i])
+
+                #Change the Reference to the new DLoc position
+                newRefFlux = np.vstack([newpixels,newFlux]).T
+                newRefXDCenterList = newXDCenterList
+            finally:
+                newDLoc = newDLoc + max(1,np.abs(stepDLoc)//2)*np.sign(stepDLoc)
+
+    # Finally fit a trace function for each order and create an Aperture Label array
+    ApertureLabel = np.zeros(ContinuumFile.shape)
+    # First conver the dictionary values to a numpy array
+    for o in LabelList:
+        FullCoorindateOfTraceDic[o] = np.array(FullCoorindateOfTraceDic[o])
+    ApertureTraceFuncDic = Get_ApertureTraceFunction(FullCoorindateOfTraceDic,deg=trace_fit_deg)        
+    # Now loop through each trace for setting the label
+    for o in reversed(sorted(LabelList)):
+        boundinside = partial(boundvalue,ll=0,ul=ApertureLabel.shape[0])
+        for j in np.arange(ApertureLabel.shape[1]):
+            mini,maxi = int(np.rint(boundinside(ApertureTraceFuncDic[o](j)-TraceHWidth))), int(np.rint(boundinside(ApertureTraceFuncDic[o](j)+TraceHWidth+1)))
+            ApertureLabel[mini:maxi,j] = o
+
+    if ShowPlot:
+        plt.imshow(np.ma.array(ApertureLabel,mask=ApertureLabel==0),cmap='hsv')
+        plt.imshow(np.log(ContinuumFile),alpha=0.5)
+        plt.colorbar()
+        plt.show()
+    if return_trace:
+        return ApertureLabel, FullCoorindateOfTraceDic
+    else:
+        return ApertureLabel
+
+
+    
 def errorfuncProfileFit(p,psf=None,xdata=None, ydata=None):
     """ Error function to minimise the profile psf(xdata) fit on to ydata """
     return p[0]*psf(xdata-p[1]) - ydata
 
 def boundvalue(x,ll,ul):
-    """ Returns x if ll< x < ul. Else the limit values """
-    if ll < x < ul:
+    """ Returns x if ll<= x <= ul. Else the limit values """
+    if ll <= x <= ul:
         return x
     elif x < ll:
         return ll
@@ -390,30 +606,26 @@ def main():
     print('Extracting {0}..'.format(SpectrumFile))
     fheader = fits.getheader(SpectrumFile)
 
-    if os.path.isfile(str(Config['ApertureLabel'])):
-        ApertureLabel = np.load(Config['ApertureLabel'])
-    else:
-        # Adaptively threshold the ContinuumFile Flat to obtain the aperture masks
-        CFlatThresholdM = ImageThreshold(Config['ContinuumFile'],bsize=51,offset=0,minarea=2000, ShowPlot=True)
-
-        if Config['BadPixMask'] is not None:
-            BPMask = np.load(Config['BadPixMask']) # fits.getdata(Config['BadPixMask'])
-            # Remove bad pixels from Thresholded image
-            CFlatThresholdM[~BPMask] = False
-        # Label the apertures
-        ApertureLabel = LabelDisjointRegions(CFlatThresholdM,DirectlyEnterRelabel= True)
-        # Save the aperture label if a non existing filename was provided as input
-        if isinstance(Config['ApertureLabel'],str):
-            np.save(Config['ApertureLabel'],ApertureLabel)
-
     ApertureTraceFilename = Config['ContinuumFile']+'_trace.pkl'
     if os.path.isfile(ApertureTraceFilename):
         print('Loading existing trace coordinates {0}'.format(ApertureTraceFilename))
         ApertureCenters = pickle.load(open(ApertureTraceFilename,'rb'))
     else:
+        # First Load/Create the Aperture Label file to label and extract trace form continuum file
+        ###########
+        if os.path.isfile(str(Config['ApertureLabel'])):
+            ApertureLabel = np.load(Config['ApertureLabel'])
+        else:
+            # ApertureLabel = CreateApertureLabelByThresholding(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],bsize=51,offset=0,minarea=2000, ShowPlot=True,DirectlyEnterRelabel= True)
+            ApertureLabel, ApertureCenters_Trace1 = CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],startLoc=None,avgHWindow=21,TraceHWidth=5,dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=0.4, extrapolate_order=2, ShowPlot=True, return_trace=True) 
+            # Save the aperture label if a non existing filename was provided as input
+            if isinstance(Config['ApertureLabel'],str):
+                np.save(Config['ApertureLabel'],ApertureLabel)
+        ###########
+        
         # Trace the center of the apertures
         ApertureCenters = FitApertureCenters(Config['ContinuumFile'],ApertureLabel,apwindow=(-7,+7),
-                                             dispersion_Xaxis = True, ShowPlot=False)
+                                             dispersion_Xaxis = Config['dispersion_Xaxis'], ShowPlot=False)
         #Save for future
         with open(ApertureTraceFilename,'wb') as tracepickle:
             pickle.dump(ApertureCenters,tracepickle)
