@@ -3,6 +3,7 @@
 import argparse
 import sys
 import os
+import logging
 import numpy as np
 from astropy.io import fits
 from astropy.stats import mad_std
@@ -30,7 +31,7 @@ def ImageThreshold(imgfile,bsize=401,offset=0, minarea=0,ShowPlot=False):
     # Adaptive thresholding..
     ThresholdedMask = imgArray > filters.threshold_local(imgArray, bsize,offset=offset)
     if minarea:
-        print('Regions of area less than {0} are discarded'.format(minarea))
+        logging.info('Regions of area less than {0} are discarded'.format(minarea))
         ThresholdedMask = morphology.remove_small_objects(ThresholdedMask,minarea)
         
     if ShowPlot:
@@ -186,7 +187,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
     Flux = np.abs(RefXD -Bkg)
     ThreshMask = RefXD > (Bkg + np.abs(mad_std(Flux))*6)
     labeled_array, num_traces = ndimage.label(ThreshMask)
-    print('Detected {0} order traces'.format(num_traces))
+    logging.info('Detected {0} order traces'.format(num_traces))
     LabelList = []
     XDCenterList = []
     for label in np.sort(np.unique(labeled_array)):
@@ -263,8 +264,8 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
                                                                              newRefFlux,method='p1',
                                                                              sigma = SigmaArrayWt)
             except (RuntimeError,ValueError) as e:
-                print(e)
-                print('Failed fitting.. Skipping {0} pixel position'.format(newDLoc))
+                logging.warning(e)
+                logging.warning('Failed fitting.. Skipping {0} pixel position'.format(newDLoc))
             else:
                 # Calculate the new pixel coordinates of previous centroids 
                 newXDCenterList = [NearestIndx(shifted_pixels,icent) for icent in newRefXDCenterList]
@@ -282,7 +283,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
                         extrapolate_points_tofit = extrapolate_order *3
                         # Find nearest extrapolate_points_tofit points fron the GoodpointsSuperList
                         NearestGoodPoints = GoodpointsSuperArray[np.argsort(np.abs(GoodpointsSuperArray-ic))[:extrapolate_points_tofit]]
-                        print('Identified Traces {0} to extrapolate for trace {1} with error {2}'.format(NearestGoodPoints,ic,newXDCenterList_err[ic]))
+                        logging.debug('Identified Traces {0} to extrapolate for trace {1} with error {2}'.format(NearestGoodPoints,ic,newXDCenterList_err[ic]))
                         # Fit the polynomial to extrapolate to obtain ic trace location
                         extrp_p = np.polyfit(NearestGoodPoints,PositionDiffArray[NearestGoodPoints],extrapolate_order)
                         new_pos_diff = np.polyval(extrp_p,ic)
@@ -341,7 +342,7 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
                            apwindow=(-7,+7),dispersion_Xaxis = True, ShowPlot=False):
     """ Fits the center of the apertures in the spectrum"""
     ApertureCenters = {}
-    print('Extracting Aperture Centers')
+    logging.info('Extracting Aperture Centers')
 
     if apertures is None : 
         apertures = np.sort(np.unique(ApertureLabel))[1:] # Remove 0
@@ -355,7 +356,7 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
     if not dispersion_Xaxis:
         ImageArray = ImageArray.T
     for aper in apertures:
-        print('Aperture : {0}'.format(aper))
+        logging.info('Aperture : {0}'.format(aper))
         # Crude center of the apperture along dispersion
         aperCenter = np.ma.mean(np.ma.array(np.indices(ApertureLabel.shape)[0], 
                                             mask=~(ApertureLabel==aper)),axis=0)
@@ -704,12 +705,26 @@ def parse_args():
                         help="Provide extension of Variance array if needs to be extracted")
     parser.add_argument('OutputFile', type=str, 
                         help="Output filename to write extracted spectrum")
+    parser.add_argument('--logfile', type=str, default=None,
+                        help="Log Filename to write logs during the run")
+    parser.add_argument("--loglevel", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        default='INFO', help="Set the logging level")
     args = parser.parse_args()
     return args
 
 def main():
     """ Extracts 2D spectrum image into 1D spectrum """
     args = parse_args()
+
+    if args.logfile is None:
+        logging.basicConfig(format='%(asctime)s: %(levelname)s: %(message)s',
+                        level=logging.getLevelName(args.loglevel))
+    else:
+        logging.basicConfig(format='%(asctime)s: %(levelname)s: %(message)s',
+                            level=logging.getLevelName(args.loglevel),
+                            filename=args.logfile, filemode='a')
+        logging.getLogger().addHandler(logging.StreamHandler(sys.stdout)) # Sent info to the stdout as well            
+
     Config = create_configdict_from_file(args.ConfigFile)
 
     SpectrumFile = args.SpectrumFile
@@ -728,16 +743,16 @@ def main():
         Config['VarianceExt'] = args.VarianceExt
 
     if os.path.isfile(OutputFile):
-        print('WARNING: Output file {0} already exist'.format(OutputFile))
-        print('Skipping this image extraction..')
+        logging.warning('WARNING: Output file {0} already exist'.format(OutputFile))
+        logging.warning('Skipping this image extraction..')
         sys.exit(1)
 
-    print('Extracting {0}..'.format(SpectrumFile))
+    logging.info('Extracting {0}..'.format(SpectrumFile))
     fheader = fits.getheader(SpectrumFile)
 
     ApertureTraceFilename = Config['ContinuumFile']+'_trace.pkl'
     if os.path.isfile(ApertureTraceFilename):
-        print('Loading existing trace coordinates {0}'.format(ApertureTraceFilename))
+        logging.info('Loading existing trace coordinates {0}'.format(ApertureTraceFilename))
         ApertureCenters = pickle.load(open(ApertureTraceFilename,'rb'))
     else:
         # First Load/Create the Aperture Label file to label and extract trace form continuum file
@@ -775,7 +790,7 @@ def main():
 
     # Apply flat correction for pixel to pixel variation
     if Config['FlatNFile'] is not None:
-        print('Doing Flat correction..')
+        logging.info('Doing Flat correction..')
         NFlat = fits.getdata(Config['FlatNFile'])
         SpectrumImage /= NFlat
         fheader['FLATFIL'] = (os.path.basename(Config['FlatNFile']), 'Flat Filename')
@@ -785,7 +800,7 @@ def main():
 
     # Apply bad pixel correction
     if Config['BadPixMask'] is not None:
-        print('Doing Bad pixel correction..')
+        logging.info('Doing Bad pixel correction..')
         BPMask = fits.getdata(Config['BadPixMask']) if Config['BadPixMask'][-5:] == '.fits' else np.load(Config['BadPixMask'])
         SpectrumImage = fix_badpixels(SpectrumImage,BPMask)
         fheader['BPMASK'] = (os.path.basename(Config['BadPixMask']), 'Bad Pixel Mask File')
@@ -806,7 +821,7 @@ def main():
 
 
     if Config['RectificationMethod'] == 'Bandlimited':
-        print('Doing Rectification :{0}'.format(Config['RectificationMethod']))
+        logging.info('Doing Rectification :{0}'.format(Config['RectificationMethod']))
         # Get rectified 2D spectrum of each aperture of the spectrum file
         RectifiedSpectrum = RectifyCurvedApertures(SpectrumImage,Config['RectificationWindow'],
                                                    ApertureTraceFuncDic,SlitShearFuncDic,
@@ -858,7 +873,7 @@ def main():
     if Config['VarianceExt'] is None:
         SumApVariance = None
     _ = WriteFitsFileSpectrum(SumApFluxSpectrum, OutputFile, VarianceSpectrumDic=SumApVariance, fitsheader=fheader)
-    print('Extracted {0} => {1} output file'.format(SpectrumFile,OutputFile))
+    logging.info('Extracted {0} => {1} output file'.format(SpectrumFile,OutputFile))
 
 if __name__ == '__main__':
     main()
