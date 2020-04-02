@@ -636,13 +636,18 @@ def fix_badpixels(SpectrumImage,BPMask,replace_with_nan=False):
     return SpectrumImage
             
 
-def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, fitsheader=None):
+def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, VarianceSpectrumDic=None, fitsheader=None):
     """ Writes the FluxSpectrumDic into fits image with filename outfilename 
     with fitsheader as header."""
     # First create a 2D array to hold all apertures of the spectrum
     Spectrumarray = np.array([FluxSpectrumDic[i] for i in sorted(FluxSpectrumDic.keys())])
     hdu = fits.PrimaryHDU(Spectrumarray,header=fitsheader)
-    hdu.writeto(outfilename)
+    hdulist =fits.HDUList([hdu])
+    if VarianceSpectrumDic is not None:
+        VarianceSpectrumarray = np.array([VarianceSpectrumDic[i] for i in sorted(VarianceSpectrumDic.keys())])
+        hdu_var = fits.ImageHDU(VarianceSpectrumarray,name='Variance')
+        hdulist.append(hdu_var)
+    hdulist.writeto(outfilename)
     return outfilename
 
 #######################################################################################
@@ -695,6 +700,8 @@ def parse_args():
                         help="Continuum flat source to be used for aperture extraction")
     parser.add_argument('--ApertureLabel', type=str, default=None,
                         help="Array of labels for the aperture trace regions")
+    parser.add_argument('--VarianceExt', type=int, default=None,
+                        help="Provide extension of Variance array if needs to be extracted")
     parser.add_argument('OutputFile', type=str, 
                         help="Output filename to write extracted spectrum")
     args = parser.parse_args()
@@ -717,6 +724,8 @@ def main():
         Config['BadPixMask'] = args.BadPixMask
     if args.ApertureLabel is not None:
         Config['ApertureLabel'] = args.ApertureLabel
+    if args.VarianceExt is not None:
+        Config['VarianceExt'] = args.VarianceExt
 
     if os.path.isfile(OutputFile):
         print('WARNING: Output file {0} already exist'.format(OutputFile))
@@ -759,6 +768,11 @@ def main():
 
     # Load the spectrum array 
     SpectrumImage = fits.getdata(SpectrumFile)
+    if Config['VarianceExt'] is not None:
+        VarianceImage = fits.getdata(SpectrumFile,ext=Config['VarianceExt'])
+    else:
+        VarianceImage = None
+
     # Apply flat correction for pixel to pixel variation
     if Config['FlatNFile'] is not None:
         print('Doing Flat correction..')
@@ -766,6 +780,8 @@ def main():
         SpectrumImage /= NFlat
         fheader['FLATFIL'] = (os.path.basename(Config['FlatNFile']), 'Flat Filename')
         fheader['HISTORY'] = 'Flat fielded the image'
+        if Config['VarianceExt'] is not None:
+            VarianceImage /= NFlat**2
 
     # Apply bad pixel correction
     if Config['BadPixMask'] is not None:
@@ -774,6 +790,8 @@ def main():
         SpectrumImage = fix_badpixels(SpectrumImage,BPMask)
         fheader['BPMASK'] = (os.path.basename(Config['BadPixMask']), 'Bad Pixel Mask File')
         fheader['HISTORY'] = 'Fixed the bad pixels in the image'
+        if Config['VarianceExt'] is not None:
+            pass  # In future update the VarianceImage to reflect the fixing of bad pixels
 
     # Also use cosmic_lacomic to fix any spiky CR hits in data
     if Config['DoCosmicRayClean']:
@@ -783,17 +801,30 @@ def main():
                                                    gain=crgain)
         fheader['LACOSMI'] = (np.sum(cmask),'Number of CR pixel fix by L.A. Cosmic')
         fheader['HISTORY'] = 'Fixed the CosmicRays using LACosmic'
+        if Config['VarianceExt'] is not None:
+            pass  # In future update the VarianceImage to reflect the fixing of cosmic rays
+
 
     if Config['RectificationMethod'] == 'Bandlimited':
         print('Doing Rectification :{0}'.format(Config['RectificationMethod']))
         # Get rectified 2D spectrum of each aperture of the spectrum file
         RectifiedSpectrum = RectifyCurvedApertures(SpectrumImage,Config['RectificationWindow'],
                                                    ApertureTraceFuncDic,SlitShearFuncDic,
-                                                   dispersion_Xaxis = Config['dispersion_Xaxis'])         
+                                                   dispersion_Xaxis = Config['dispersion_Xaxis'])
+        if Config['VarianceExt'] is not None:
+            RectifiedVariance = RectifyCurvedApertures(VarianceImage,Config['RectificationWindow'],
+                                                       ApertureTraceFuncDic,SlitShearFuncDic,
+                                                       dispersion_Xaxis = Config['dispersion_Xaxis'])
+        
+        # Do the post rectification extraction
         if Config['ExtractionMethod'] == 'Sum':
             # Sum the flux in XD direction of slit
             SumApFluxSpectrum = SumApertures(RectifiedSpectrum, apwindow=Config['ApertureWindow'], 
                                              ShowPlot=False)
+            if Config['VarianceExt'] is not None:
+                SumApVariance = SumApertures(RectifiedVariance, apwindow=Config['ApertureWindow'], 
+                                             ShowPlot=False)
+
         else:
             raise NotImplementedError('Unknown Extraction method {0}'.format(Config['ExtractionMethod']))
     elif Config['RectificationMethod'] is None:
@@ -806,6 +837,14 @@ def main():
                                                    EdgepixelOrder = 3,
                                                    dispersion_Xaxis = Config['dispersion_Xaxis'],
                                                    ShowPlot=False)
+            if Config['VarianceExt'] is not None:
+                SumApVariance = SumCurvedApertures(VarianceImage, ApertureTraceFuncDic, 
+                                                   apwindow=Config['ApertureWindow'], 
+                                                   EdgepixelOrder = 3,
+                                                   dispersion_Xaxis = Config['dispersion_Xaxis'],
+                                                   ShowPlot=False)
+                
+
         else:
             raise NotImplementedError('Unknown Extraction method {0}'.format(Config['ExtractionMethod']))
     else:
@@ -816,7 +855,9 @@ def main():
     fheader['EXTRMETH'] = (str(Config['ExtractionMethod']), 'Extraction method used')
     fheader['APERTURE'] = (str(Config['ApertureWindow']), 'Aperture window used for extraction')
     fheader['HISTORY'] = 'Extracted spectrum to 1D'
-    _ = WriteFitsFileSpectrum(SumApFluxSpectrum, OutputFile, fitsheader=fheader)
+    if Config['VarianceExt'] is None:
+        SumApVariance = None
+    _ = WriteFitsFileSpectrum(SumApFluxSpectrum, OutputFile, VarianceSpectrumDic=SumApVariance, fitsheader=fheader)
     print('Extracted {0} => {1} output file'.format(SpectrumFile,OutputFile))
 
 if __name__ == '__main__':
