@@ -686,7 +686,7 @@ def create_configdict_from_file(configfilename):
         Config[key] = parse_str_to_types(value)
     return Config
 
-def parse_args():
+def parse_args(raw_args=None):
     """ Parses the command line input arguments """
     parser = argparse.ArgumentParser(description="Spectral Extraction Tool")
     parser.add_argument('SpectrumFile', type=str,
@@ -709,12 +709,12 @@ def parse_args():
                         help="Log Filename to write logs during the run")
     parser.add_argument("--loglevel", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         default='INFO', help="Set the logging level")
-    args = parser.parse_args()
+    args = parser.parse_args(raw_args)
     return args
 
-def main():
+def main(raw_args=None):
     """ Extracts 2D spectrum image into 1D spectrum """
-    args = parse_args()
+    args = parse_args(raw_args)
 
     if args.logfile is None:
         logging.basicConfig(format='%(asctime)s: %(levelname)s: %(message)s',
