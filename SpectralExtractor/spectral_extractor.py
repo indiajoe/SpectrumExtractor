@@ -61,7 +61,7 @@ def LabelDisjointRegions(mask,DirectlyEnterRelabel= False):
             print('Area of region = {0}'.format(size))
             print('Current Label : {0}'.format(label))
             newlbl = sugg
-            uinput = raw_input('Enter New Region label  (default: {0}): '.format(sugg)).strip()
+            uinput = str(input('Enter New Region label  (default: {0}): '.format(sugg))).strip()
             if uinput: #User provided input
                 if uinput == 'q':
                     # Set all the labels current and above this value to Zero and exit
@@ -87,7 +87,7 @@ def LabelDisjointRegions(mask,DirectlyEnterRelabel= False):
         print('Create a file with the label renames to be executed.')
         print('File format should be 2 columns :  OldLabel NewLabel')
         print('Note: Only assigned labels will be kept..')
-        uinputfile = raw_input('Enter the filename :').strip()
+        uinputfile = input('Enter the filename :').strip()
         if uinputfile: #User provided input
             with open(uinputfile,'r') as labelchangefile:
                 labelchangelist = [tuple(int(i) for i in entry.rstrip().split()) \
@@ -214,7 +214,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
     print('Create a file with the label names and pixel coords to use.')
     print('File format should be 3 columns :  OrderLabel PixelCoords PixelError')
     print('Note: Trace labels should start with 1 and not zero')
-    uinputfile = raw_input('Enter the filename :').strip()
+    uinputfile = input('Enter the filename :').strip()
     if uinputfile: #User provided input
         with open(uinputfile,'r') as labelchangefile:
             LabelList = []
@@ -390,7 +390,7 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
         ampl = 1
         for d,xd,flux in zip(dpix,xdapL2Upix,Rectifiedarray):
             # initial estimate
-            p0 = [ampl,xd[len(xd)/2]]
+            p0 = [ampl,xd[len(xd)//2]]
             p,ier = optimize.leastsq(errorfuncProfileFit, p0, args=(psf,xd,flux))
             CenterXDcoo.append(boundvalue(p[1],np.min(xd),np.max(xd))) # use the boundry values incase the fitted p[1] is outside the bounds 
             ampl = p[0] # update with the lastest amplitude estimate
@@ -545,25 +545,25 @@ def SumSubpixelAperturewindow(ImageArrayStrip,TopEdgeCoord,BottomEdgeCoord,Edgep
     ### Below is where all the magic happens, don't mess with it without understanding what you are dealing with.
 
     # Coorindate of pixel boundaries
-    TopEdgeXrows = np.vstack([np.int_(TopEdgeCoord)+i for i in range(-EdgepixelOrder/2,EdgepixelOrder/2 +1)])
+    TopEdgeXrows = np.vstack([np.int_(TopEdgeCoord)+i for i in range(-EdgepixelOrder//2,EdgepixelOrder//2 +1)])
     # Assign the value of a pixel below to the pixel boundry
-    TopEdgeYvaluerows = np.vstack([ImageArrayStrip[np.int_(TopEdgeCoord)+i-1,np.arange(ImageArrayStrip.shape[1])] for i in range(-EdgepixelOrder/2,EdgepixelOrder/2 +1)])
+    TopEdgeYvaluerows = np.vstack([ImageArrayStrip[np.int_(TopEdgeCoord)+i-1,np.arange(ImageArrayStrip.shape[1])] for i in range(-EdgepixelOrder//2,EdgepixelOrder//2 +1)])
     # Calculate the cumulative sum values for interpolation
     CumSumTopEdgeYvaluerows = np.cumsum(TopEdgeYvaluerows,axis=0)
     # Set the value at edge of fully inside pixel to be zero
-    CumSumTopEdgeYvaluerows -= CumSumTopEdgeYvaluerows[(EdgepixelOrder+1)/2,:]
+    CumSumTopEdgeYvaluerows -= CumSumTopEdgeYvaluerows[(EdgepixelOrder+1)//2,:]
     # Now obtain the Top edge interpolated value
     TopEdgePixelContribution = LagrangeInterpolateArray(TopEdgeCoord,TopEdgeXrows,CumSumTopEdgeYvaluerows)
     
     # Simillarly get the flux contrinution from Bottom Edge as well
     # Coorindate of pixel boundaries
-    BottomEdgeXrows = np.vstack([np.int_(BottomEdgeCoord)+i for i in range(-EdgepixelOrder/2+1,EdgepixelOrder/2 +1+1)])
+    BottomEdgeXrows = np.vstack([np.int_(BottomEdgeCoord)+i for i in range(-EdgepixelOrder//2+1,EdgepixelOrder//2 +1+1)])
     # Assign the value of a pixel above to the pixel boundry
-    BottomEdgeYvaluerows = np.vstack([ImageArrayStrip[np.int_(BottomEdgeCoord)+i,np.arange(ImageArrayStrip.shape[1])] for i in range(-EdgepixelOrder/2+1,EdgepixelOrder/2 +1+1)])
+    BottomEdgeYvaluerows = np.vstack([ImageArrayStrip[np.int_(BottomEdgeCoord)+i,np.arange(ImageArrayStrip.shape[1])] for i in range(-EdgepixelOrder//2+1,EdgepixelOrder//2 +1+1)])
     # Calculate the cumulative sum values for interpolation in up to down direction
     CumSumBottomEdgeYvaluerows = np.cumsum(BottomEdgeYvaluerows[::-1,:],axis=0)[::-1,:]
     # Set the value at edge of fully inside pixel to be zero
-    CumSumBottomEdgeYvaluerows -= CumSumBottomEdgeYvaluerows[(EdgepixelOrder-1)/2 +1,:]
+    CumSumBottomEdgeYvaluerows -= CumSumBottomEdgeYvaluerows[(EdgepixelOrder-1)//2 +1,:]
     # Now obtain the Top edge interpolated value
     BottomEdgePixelContribution = LagrangeInterpolateArray(BottomEdgeCoord,BottomEdgeXrows,CumSumBottomEdgeYvaluerows)
 
