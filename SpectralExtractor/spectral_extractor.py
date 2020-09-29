@@ -270,33 +270,38 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
                 # Calculate the new pixel coordinates of previous centroids 
                 newXDCenterList = [NearestIndx(shifted_pixels,icent) for icent in newRefXDCenterList]
                 newXDCenterList, newXDCenterList_err  = RefineCentriodsInSignal(newFlux,newXDCenterList,TraceHWidth,Xpixels=newpixels)
-                # Identify poorly constrained centers and extrapolate from the nearby good points. 
-                PositionDiffArray = np.array(newXDCenterList)-np.array(XDCenterList)
-                newSortedErrorIndices = np.argsort(newXDCenterList_err)
-                for i in range(len(newSortedErrorIndices)):
-                    ic = newSortedErrorIndices[i]
-                    if newXDCenterList_err[ic] < extrapolate_thresh:
-                        continue
-                    else:
-                        # Identify nearby good points better than this bad point
-                        GoodpointsSuperArray = np.array(newSortedErrorIndices[:i])
-                        extrapolate_points_tofit = extrapolate_order *3
-                        # Find nearest extrapolate_points_tofit points fron the GoodpointsSuperList
-                        NearestGoodPoints = GoodpointsSuperArray[np.argsort(np.abs(GoodpointsSuperArray-ic))[:extrapolate_points_tofit]]
-                        logging.debug('Identified Traces {0} to extrapolate for trace {1} with error {2}'.format(NearestGoodPoints,ic,newXDCenterList_err[ic]))
-                        # Fit the polynomial to extrapolate to obtain ic trace location
-                        extrp_p = np.polyfit(NearestGoodPoints,PositionDiffArray[NearestGoodPoints],extrapolate_order)
-                        new_pos_diff = np.polyval(extrp_p,ic)
-                        PositionDiffArray[ic] = new_pos_diff
-                        newXDCenterList[ic] = XDCenterList[ic] + new_pos_diff
-                # update the Dictionary
-                for i,o in enumerate(LabelList):
-                    FullCoorindateOfTraceDic[o][0].append(newDLoc)
-                    FullCoorindateOfTraceDic[o][1].append(newXDCenterList[i])
+                # Make sure there is atleast extrapolate_order trace which do not need to be interpolated to for this scheme to work
+                NoOfGoodTraceFits = np.sum(np.array(newXDCenterList_err) < extrapolate_thresh)
+                if NoOfGoodTraceFits > extrapolate_order : 
+                    # Identify poorly constrained centers and extrapolate from the nearby good points. 
+                    PositionDiffArray = np.array(newXDCenterList)-np.array(XDCenterList)
+                    newSortedErrorIndices = np.argsort(newXDCenterList_err)
+                    for i in range(len(newSortedErrorIndices)):
+                        ic = newSortedErrorIndices[i]
+                        if newXDCenterList_err[ic] < extrapolate_thresh:
+                            continue
+                        else:
+                            # Identify nearby good points better than this bad point
+                            GoodpointsSuperArray = np.array(newSortedErrorIndices[:i])
+                            extrapolate_points_tofit = extrapolate_order *3
+                            # Find nearest extrapolate_points_tofit points fron the GoodpointsSuperList
+                            NearestGoodPoints = GoodpointsSuperArray[np.argsort(np.abs(GoodpointsSuperArray-ic))[:extrapolate_points_tofit]]
+                            logging.debug('Identified Traces {0} to extrapolate for trace {1} with error {2} at pixel pos {3}'.format(NearestGoodPoints,ic,newXDCenterList_err[ic],newDLoc))
+                            # Fit the polynomial to extrapolate to obtain ic trace location
+                            extrp_p = np.polyfit(NearestGoodPoints,PositionDiffArray[NearestGoodPoints],extrapolate_order)
+                            new_pos_diff = np.polyval(extrp_p,ic)
+                            PositionDiffArray[ic] = new_pos_diff
+                            newXDCenterList[ic] = XDCenterList[ic] + new_pos_diff
+                    # update the Dictionary
+                    for i,o in enumerate(LabelList):
+                        FullCoorindateOfTraceDic[o][0].append(newDLoc)
+                        FullCoorindateOfTraceDic[o][1].append(newXDCenterList[i])
 
-                #Change the Reference to the new DLoc position
-                newRefFlux = np.vstack([newpixels,newFlux]).T
-                newRefXDCenterList = newXDCenterList
+                    #Change the Reference to the new DLoc position
+                    newRefFlux = np.vstack([newpixels,newFlux]).T
+                    newRefXDCenterList = newXDCenterList
+                else:
+                    logging.debug('Skipping pixel pos {0} since number of good traces {1} < extrapolation poly order {2}'.format(newDLoc,NoOfGoodTraceFits, extrapolate_order))
             finally:
                 newDLoc = newDLoc + max(1,np.abs(stepDLoc)//2)*np.sign(stepDLoc)
 
