@@ -15,7 +15,7 @@ from scipy import ndimage, signal
 import scipy.interpolate as interp
 import scipy.optimize as optimize
 import pickle
-from ccdproc import cosmicray_lacosmic 
+from ccdproc import cosmicray_lacosmic
 from WavelengthCalibrationTool.recalibrate import ReCalibrateDispersionSolution, scale_interval_m1top1
 from WavelengthCalibrationTool.utils import calculate_cov_matrix_fromscipylsq
 
@@ -40,7 +40,7 @@ def ImageThreshold(imgfile,bsize=401,offset=0, minarea=0,ShowPlot=False):
     if minarea:
         logging.info('Regions of area less than {0} are discarded'.format(minarea))
         ThresholdedMask = morphology.remove_small_objects(ThresholdedMask,minarea)
-        
+
     if ShowPlot:
         plt.imshow(np.ma.array(imgArray,mask=~ThresholdedMask))
         plt.colorbar()
@@ -104,12 +104,12 @@ def LabelDisjointRegions(mask,DirectlyEnterRelabel= False):
             for oldlabel, newlabel in labelchangelist:
                 # Now assign new label
                 NewLabeledArray[labeled_array == oldlabel] = newlabel
-                
+
         else:
             print('No input given. No relabelling done..')
 
-        
-        
+
+
     plt.clf()
     print('New labelled regions')
     plt.imshow(NewLabeledArray)
@@ -214,7 +214,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
         plt.xlabel('XD pixels')
         plt.ylabel('Trace labels')
         plt.show()
-    
+
     print('Trace_number     PixelCoord   PixelError')
     print('\n'.join(['{0}  {1}  {2}'.format(l,p,e) for l,p,e in zip(LabelList,XDCenterList,XDCenterList_err)]))
 
@@ -274,13 +274,13 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
                 logging.warning(e)
                 logging.warning('Failed fitting.. Skipping {0} pixel position'.format(newDLoc))
             else:
-                # Calculate the new pixel coordinates of previous centroids 
+                # Calculate the new pixel coordinates of previous centroids
                 newXDCenterList = [NearestIndx(shifted_pixels,icent) for icent in newRefXDCenterList]
                 newXDCenterList, newXDCenterList_err  = RefineCentriodsInSignal(newFlux,newXDCenterList,TraceHWidth,Xpixels=newpixels)
                 # Make sure there is atleast extrapolate_order trace which do not need to be interpolated to for this scheme to work
                 NoOfGoodTraceFits = np.sum(np.array(newXDCenterList_err) < extrapolate_thresh)
-                if NoOfGoodTraceFits > extrapolate_order : 
-                    # Identify poorly constrained centers and extrapolate from the nearby good points. 
+                if NoOfGoodTraceFits > extrapolate_order :
+                    # Identify poorly constrained centers and extrapolate from the nearby good points.
                     PositionDiffArray = np.array(newXDCenterList)-np.array(XDCenterList)
                     newSortedErrorIndices = np.argsort(newXDCenterList_err)
                     for i in range(len(newSortedErrorIndices)):
@@ -318,7 +318,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
     # First conver the dictionary values to a numpy array
     for o in LabelList:
         FullCoorindateOfTraceDic[o] = np.array(FullCoorindateOfTraceDic[o])
-    ApertureTraceFuncDic = Get_ApertureTraceFunction(FullCoorindateOfTraceDic,deg=trace_fit_deg)        
+    ApertureTraceFuncDic = Get_ApertureTraceFunction(FullCoorindateOfTraceDic,deg=trace_fit_deg)
     # Now loop through each trace for setting the label
     for o in reversed(sorted(LabelList)):
         boundinside = partial(boundvalue,ll=0,ul=ApertureLabel.shape[0])
@@ -337,7 +337,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
         return ApertureLabel
 
 
-    
+
 def errorfuncProfileFit(p,psf=None,xdata=None, ydata=None):
     """ Error function to minimise the profile psf(xdata) fit on to ydata """
     return p[0]*psf(xdata-p[1]) - ydata
@@ -357,7 +357,7 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
     ApertureCenters = {}
     logging.info('Extracting Aperture Centers')
 
-    if apertures is None : 
+    if apertures is None :
         apertures = np.sort(np.unique(ApertureLabel))[1:] # Remove 0
 
     if isinstance(SpectrumFile,str):
@@ -371,7 +371,7 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
     for aper in apertures:
         logging.info('Aperture : {0}'.format(aper))
         # Crude center of the apperture along dispersion
-        aperCenter = np.ma.mean(np.ma.array(np.indices(ApertureLabel.shape)[0], 
+        aperCenter = np.ma.mean(np.ma.array(np.indices(ApertureLabel.shape)[0],
                                             mask=~(ApertureLabel==aper)),axis=0)
         # Masked values in the aperCenter means no pixel in the threshold map!
 
@@ -387,7 +387,7 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
 
         Rectifiedarray = ImageArray[(xdapL2Upix,
                                      np.repeat(dpix[:,np.newaxis],xdapL2Upix.shape[1],axis=1))]
-        weights_foravg = np.sum(Rectifiedarray,axis=1) 
+        weights_foravg = np.sum(Rectifiedarray,axis=1)
         weights_foravg = np.clip(weights_foravg,0,np.percentile(weights_foravg,98))  # remove -ve weights and clip 2 percentile max points
         mean_profile = np.average(Rectifiedarray,axis=0,weights=weights_foravg)  # weighted propotional to flux level
         # PSF interpolated function
@@ -401,13 +401,13 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
         for d,xd,flux in zip(dpix,xdapL2Upix,Rectifiedarray):
             # initial estimate
             p0 = [ampl,xd[len(xd)//2]]
-            fitoutput = optimize.least_squares(errorfuncProfileFit, p0, 
-                                               bounds=([0,np.min(xd)],[np.inf,np.max(xd)]), 
+            fitoutput = optimize.least_squares(errorfuncProfileFit, p0,
+                                               bounds=([0,np.min(xd)],[np.inf,np.max(xd)]),
                                                args=(psf,xd,flux))
             p = fitoutput.x
             pcov = calculate_cov_matrix_fromscipylsq(fitoutput,absolute_sigma=False)
             # p,ier = optimize.leastsq(errorfuncProfileFit, p0, args=(psf,xd,flux))
-            # CenterXDcoo.append(boundvalue(p[1],np.min(xd),np.max(xd))) # use the boundry values incase the fitted p[1] is outside the bounds 
+            # CenterXDcoo.append(boundvalue(p[1],np.min(xd),np.max(xd))) # use the boundry values incase the fitted p[1] is outside the bounds
             CenterXDcoo.append(p[1])
             CenterXDcooErr.append(np.sqrt(pcov[1,1]))
             ampl = p[0] # update with the lastest amplitude estimate
@@ -425,7 +425,7 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
 
 
 def Get_ApertureTraceFunction(ApertureCenters,deg=4):
-    """ Returns dictionary of aperture trace functions (degree = deg) 
+    """ Returns dictionary of aperture trace functions (degree = deg)
         based on the best fit of points in ApertureCenters """
     ApertureTraceFuncDic = {}
     for aper in ApertureCenters:
@@ -433,10 +433,10 @@ def Get_ApertureTraceFunction(ApertureCenters,deg=4):
         weights[~np.isfinite(weights)] = 0
 
         # fit Chebyshev polynomial to the data to obtain cheb coeffs
-        cc = np.polynomial.chebyshev.chebfit(ApertureCenters[aper][0,:], 
-                                             ApertureCenters[aper][1,:], deg, 
+        cc = np.polynomial.chebyshev.chebfit(ApertureCenters[aper][0,:],
+                                             ApertureCenters[aper][1,:], deg,
                                              w=weights)
-        ApertureTraceFuncDic[aper] = partial(np.polynomial.chebyshev.chebval, c= cc) 
+        ApertureTraceFuncDic[aper] = partial(np.polynomial.chebyshev.chebval, c= cc)
 
     return ApertureTraceFuncDic
 
@@ -445,7 +445,7 @@ def Get_SlitShearFunction(ApertureCenters):
     ApertureSlitShearFuncDic = {}
     for aper in ApertureCenters:
         ApertureSlitShearFuncDic[aper] = lambda x : x*0 #- 0.0351 # -0.0351 was for the tilt in HE at Oct Cooldown at HET
- 
+
     return ApertureSlitShearFuncDic
 
 def RectifyCurvedApertures(SpectrumFile,Twidth,
@@ -467,7 +467,7 @@ def RectifyCurvedApertures(SpectrumFile,Twidth,
     # Transpose the image if dispersion is not along X axis
     if not dispersion_Xaxis:
         ImageArray = ImageArray.T
- 
+
     DispCoords = np.arange(ImageArray.shape[1])
     XDCoordsDelta = np.arange(Twidth[0],Twidth[1]+1)
 
@@ -477,7 +477,7 @@ def RectifyCurvedApertures(SpectrumFile,Twidth,
         XDCoordsCenter = ApertureTraceFuncDic[aper](DispCoords)
         DCoords = DispCoords[:,np.newaxis] + SlitShearFuncDic[aper](DispCoords)[:,np.newaxis]*XDCoordsDelta[np.newaxis,:]
         XDCoords = XDCoordsCenter[:,np.newaxis] + XDCoordsDelta[np.newaxis,:]
-        
+
         # Now use Bandlimited inteprolation to find values at the mapped pixels.
         # Initiate the interpolator
         BL2D = BandLimited2DInterpolator(filter_sizeX = 31,filter_sizeY = 31, kaiserBX=5, kaiserBY=5)
@@ -487,9 +487,9 @@ def RectifyCurvedApertures(SpectrumFile,Twidth,
         ImageArrayStrip = ImageArray[XDstart:XDend,:]
         NewXCoo = XDCoords.flatten() - XDstart
         NewYCoo = DCoords.flatten()
-        Interpolated_values = BL2D.interpolate(NewXCoo,NewYCoo,ImageArrayStrip)        
+        Interpolated_values = BL2D.interpolate(NewXCoo,NewYCoo,ImageArrayStrip)
         # TODO: Multiply by the area ratio of the transformation for flux preservation
-        
+
         # Reshape back the flattned values to 2D array
         RectifiedApertureDic[aper] = Interpolated_values.reshape(XDCoords.shape)
     return RectifiedApertureDic
@@ -497,18 +497,18 @@ def RectifyCurvedApertures(SpectrumFile,Twidth,
 
 def SumApertures(RectifiedApertureDic, apwindow=(None,None), apertures=None, ShowPlot=False):
     """ Returns the sum of each rectified aperture inside the apwindow .
-    If lower bound or upper bound of apwindow is None, sumation will be from 
+    If lower bound or upper bound of apwindow is None, sumation will be from
     the begining or till the end of the XD axis of aperture array respectively"""
     ApertureSumDic = {}
-    if apertures is None : 
+    if apertures is None :
         apertures = RectifiedApertureDic.keys()
-    
+
     for aper in apertures:
         Llimit = -int(RectifiedApertureDic[aper].shape[1]/2.0) if apwindow[0] is None else apwindow[0]
         Ulimit = int(RectifiedApertureDic[aper].shape[1]/2.0) if apwindow[1] is None else apwindow[1]
         Lindx = int(RectifiedApertureDic[aper].shape[1]/2.0) + Llimit
         Uindx = int(RectifiedApertureDic[aper].shape[1]/2.0) + Ulimit
-        
+
 
         ApertureSumDic[aper] = np.sum(RectifiedApertureDic[aper][:,Lindx:Uindx],axis=1)
         if ShowPlot:
@@ -523,8 +523,8 @@ def SumApertures(RectifiedApertureDic, apwindow=(None,None), apertures=None, Sho
 def LagrangeInterpolateArray(newX,X,Y):
     """ Returns an interpolation at newX location using a Lagrange polynomial of order X.shape[0] on X,Y data.
     See formula in https://en.wikipedia.org/wiki/Polynomial_interpolation#Constructing_the_interpolation_polynomial
-    Note newX should be an array of size X.shape[1] . (Or float if X and Y are 1D arrays) 
-    ie, X and Y will also be a 2D array. And the funtion will return the newX values for each of the X[:,i],Y[:,i] pairs.  
+    Note newX should be an array of size X.shape[1] . (Or float if X and Y are 1D arrays)
+    ie, X and Y will also be a 2D array. And the funtion will return the newX values for each of the X[:,i],Y[:,i] pairs.
  """
     xmX_j = newX-X
     TermsList = []
@@ -535,7 +535,7 @@ def LagrangeInterpolateArray(newX,X,Y):
         Pij = np.product(xmX_jmi_by_X_imX_j,axis=0)
         TermsList.append(Pij*Y[i])
     return np.sum(TermsList,axis=0)
-        
+
 def SumSubpixelAperturewindow(ImageArrayStrip,TopEdgeCoord,BottomEdgeCoord,EdgepixelOrder):
     """ Returns sum of the subpixel aperture window on top of ImageArrayStrip, where the window is defined by the TopEdgeCoord, BottomEdgeCoord.
     The contribution of subpixel at the edge is calculated by LagrangeInterpolation of the cumulative flux in the pixel grid.
@@ -550,19 +550,19 @@ def SumSubpixelAperturewindow(ImageArrayStrip,TopEdgeCoord,BottomEdgeCoord,Edgep
                       Note:  TopEdgeCoord - BottomEdgeCoord should be > 1. i.e., The aperture window should be larger than a pixel
         EdgepixelOrder: The order of the polynomial used for interpolation of the ub-pixel aperture on the edge pixel.
     OUTPUTS:
-        SumArray : Numpy 1D array, which contains the sum of the flux inside th sub-pixel aperture along each column of ImageArrayStrip 
+        SumArray : Numpy 1D array, which contains the sum of the flux inside th sub-pixel aperture along each column of ImageArrayStrip
 
     """
 
     if np.any((TopEdgeCoord - BottomEdgeCoord) < 1):
         raise ValueError('TopEdgeCoord - BottomEdgeCoord should be > 1. i.e., The aperture window should be larger than a pixel')
 
-    # To sum up all the pixels fully inside the aperture, create a mask 
+    # To sum up all the pixels fully inside the aperture, create a mask
     Igrid,Jgrid = np.mgrid[0:ImageArrayStrip.shape[0],0:ImageArrayStrip.shape[1]]
 
     FullyInsidePixelMask = (Igrid >= np.int_(BottomEdgeCoord)+1 ) & (Igrid <= np.int_(TopEdgeCoord)-1 )
     FullyInsidePixelSum = np.ma.sum(np.ma.array(ImageArrayStrip,mask=~FullyInsidePixelMask),axis=0).data
-        
+
     # Now calculate the interpolated flux in edge pixel
 
     ### Below is where all the magic happens, don't mess with it without understanding what you are dealing with.
@@ -577,7 +577,7 @@ def SumSubpixelAperturewindow(ImageArrayStrip,TopEdgeCoord,BottomEdgeCoord,Edgep
     CumSumTopEdgeYvaluerows -= CumSumTopEdgeYvaluerows[(EdgepixelOrder+1)//2,:]
     # Now obtain the Top edge interpolated value
     TopEdgePixelContribution = LagrangeInterpolateArray(TopEdgeCoord,TopEdgeXrows,CumSumTopEdgeYvaluerows)
-    
+
     # Simillarly get the flux contrinution from Bottom Edge as well
     # Coorindate of pixel boundaries
     BottomEdgeXrows = np.vstack([np.int_(BottomEdgeCoord)+i for i in range(-EdgepixelOrder//2+1,EdgepixelOrder//2 +1+1)])
@@ -607,10 +607,10 @@ def SumCurvedApertures(SpectrumFile, ApertureTraceFuncDic, apwindow=(None,None),
     # Transpose the image if dispersion is not along X axis
     if not dispersion_Xaxis:
         ImageArray = ImageArray.T
-    
-    if apertures is None : 
+
+    if apertures is None :
         apertures = ApertureTraceFuncDic.keys()
-    
+
     ApertureSumDic = {}
     DispCoords = np.arange(ImageArray.shape[1])
 
@@ -626,7 +626,7 @@ def SumCurvedApertures(SpectrumFile, ApertureTraceFuncDic, apwindow=(None,None),
         StripEnd = int(np.rint(np.max(XDCoordsCenter)+apwindow[1]+EdgepixelOrder))
         ImageArrayStrip = ImageArray[StripStart:StripEnd,:]
         # New coordinates inside the Strip, Add 0.5 to convert pixel index to pixel center coordinate
-        XDCoordsCenterStrip = XDCoordsCenter - StripStart +0.5  
+        XDCoordsCenterStrip = XDCoordsCenter - StripStart +0.5
         TopEdgeCoord = XDCoordsCenterStrip+apwindow[1]
         BottomEdgeCoord = XDCoordsCenterStrip+apwindow[0]
         # Sum the flux inside the sub-pixel aperture window
@@ -639,7 +639,7 @@ def SumCurvedApertures(SpectrumFile, ApertureTraceFuncDic, apwindow=(None,None),
         plt.title('Aperture : {0}'.format(aper))
         plt.show()
 
-    return ApertureSumDic        
+    return ApertureSumDic
 
 def fix_badpixels(SpectrumImage,BPMask,replace_with_nan=False):
     """ Applies the bad mask (BPMask) on to the SpectrumImage to fix it """
@@ -667,11 +667,11 @@ def fix_badpixels(SpectrumImage,BPMask,replace_with_nan=False):
             SpectrumImage[Xc,Yc] = LinInterp(np.array([Xc,Yc]).T)
 
     return SpectrumImage
-            
+
 
 def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, VarianceSpectrumDic=None, fitsheader=None,
                           BkgFluxSpectrumList=(), BkgFluxVarSpectrumList=()):
-    """ Writes the FluxSpectrumDic into fits image with filename outfilename 
+    """ Writes the FluxSpectrumDic into fits image with filename outfilename
     with fitsheader as header."""
     # First create a 2D array to hold all apertures of the spectrum
     Spectrumarray = np.array([FluxSpectrumDic[i] for i in sorted(FluxSpectrumDic.keys())])
@@ -716,8 +716,8 @@ def parse_str_to_types(string):
             return float(string)
         except ValueError:
             return string
-        
-        
+
+
 
 def create_configdict_from_file(configFilename,listOfConfigSections=None,flattenSections=True):
     """ Returns a configuration object as a dictionary by loading the config file.
@@ -778,7 +778,7 @@ def parse_args(raw_args=None):
                         help="Array of labels for the aperture trace regions")
     parser.add_argument('--VarianceExt', type=int, default=None,
                         help="Provide extension of Variance array if needs to be extracted")
-    parser.add_argument('OutputFile', type=str, 
+    parser.add_argument('OutputFile', type=str,
                         help="Output filename to write extracted spectrum")
     parser.add_argument('--logfile', type=str, default=None,
                         help="Log Filename to write logs during the run")
@@ -798,7 +798,7 @@ def main(raw_args=None):
         logging.basicConfig(format='%(asctime)s: %(levelname)s: %(message)s',
                             level=logging.getLevelName(args.loglevel),
                             filename=args.logfile, filemode='a')
-        logging.getLogger().addHandler(logging.StreamHandler(sys.stdout)) # Sent info to the stdout as well            
+        logging.getLogger().addHandler(logging.StreamHandler(sys.stdout)) # Sent info to the stdout as well
 
     Config = create_configdict_from_file(args.ConfigFile,listOfConfigSections=['processing_settings',
                                                                                'tracing_settings',
@@ -848,14 +848,14 @@ def main(raw_args=None):
             ApertureLabel, ApertureCenters_Trace1 = CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
                                                                                    startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
                                                                                    TraceHWidth=Config['HWidth_inXD'],trace_fit_deg=Config['ApertureTraceFuncDegree'],
-                                                                                   dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=Config['extrapolate_thresh_forTrace'], 
-                                                                                   extrapolate_order=Config['extrapolate_order_forTrace'], ShowPlot=Config['ShowPlot_Trace'], 
-                                                                                   return_trace=True) 
+                                                                                   dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=Config['extrapolate_thresh_forTrace'],
+                                                                                   extrapolate_order=Config['extrapolate_order_forTrace'], ShowPlot=Config['ShowPlot_Trace'],
+                                                                                   return_trace=True)
             # Save the aperture label if a non existing filename was provided as input
             if isinstance(Config['ApertureLabel'],str):
                 np.save(Config['ApertureLabel'],ApertureLabel)
         ###########
-        
+
         # Trace the center of the apertures
         ApertureCenters = FitApertureCenters(Config['ContinuumFile'],ApertureLabel,
                                              apwindow=(-Config['HWidth_inXD'],Config['HWidth_inXD']),
@@ -869,10 +869,10 @@ def main(raw_args=None):
     # Obtain the tracing function of each aperture
     ApertureTraceFuncDic = Get_ApertureTraceFunction(ApertureCenters,
                                                      deg=Config['ApertureTraceFuncDegree'])
-    # Obtain the Slit Shear of each order 
+    # Obtain the Slit Shear of each order
     SlitShearFuncDic = Get_SlitShearFunction(ApertureCenters)
 
-    # Load the spectrum array 
+    # Load the spectrum array
     SpectrumImage = fits.getdata(SpectrumFile)
     if Config['VarianceExt'] is not None:
         VarianceImage = fits.getdata(SpectrumFile,ext=Config['VarianceExt'])
@@ -925,14 +925,14 @@ def main(raw_args=None):
             RectifiedVariance = RectifyCurvedApertures(VarianceImage,Config['RectificationWindow'],
                                                        ApertureTraceFuncDic,SlitShearFuncDic,
                                                        dispersion_Xaxis = Config['dispersion_Xaxis'])
-        
+
         # Do the post rectification extraction
         if Config['ExtractionMethod'] == 'Sum':
             # Sum the flux in XD direction of slit
-            SumApFluxSpectrum = SumApertures(RectifiedSpectrum, apwindow=Config['ApertureWindow'], 
+            SumApFluxSpectrum = SumApertures(RectifiedSpectrum, apwindow=Config['ApertureWindow'],
                                              ShowPlot=False)
             if Config['VarianceExt'] is not None:
-                SumApVariance = SumApertures(RectifiedVariance, apwindow=Config['ApertureWindow'], 
+                SumApVariance = SumApertures(RectifiedVariance, apwindow=Config['ApertureWindow'],
                                              ShowPlot=False)
 
         else:
@@ -942,14 +942,14 @@ def main(raw_args=None):
         # Directly extract from curved data
         if Config['ExtractionMethod'] == 'Sum':
             # Sum the flux in XD direction of slit
-            SumApFluxSpectrum = SumCurvedApertures(SpectrumImage, ApertureTraceFuncDic, 
-                                                   apwindow=Config['ApertureWindow'], 
+            SumApFluxSpectrum = SumCurvedApertures(SpectrumImage, ApertureTraceFuncDic,
+                                                   apwindow=Config['ApertureWindow'],
                                                    EdgepixelOrder = 3,
                                                    dispersion_Xaxis = Config['dispersion_Xaxis'],
                                                    ShowPlot=False)
             if Config['VarianceExt'] is not None:
-                SumApVariance = SumCurvedApertures(VarianceImage, ApertureTraceFuncDic, 
-                                                   apwindow=Config['ApertureWindow'], 
+                SumApVariance = SumCurvedApertures(VarianceImage, ApertureTraceFuncDic,
+                                                   apwindow=Config['ApertureWindow'],
                                                    EdgepixelOrder = 3,
                                                    dispersion_Xaxis = Config['dispersion_Xaxis'],
                                                    ShowPlot=False)
@@ -964,15 +964,15 @@ def main(raw_args=None):
                 BkgApertrueWindowList = [Config['BkgWindows']]
             for bkg_aperture in BkgApertrueWindowList:
                 # Sum the flux in XD direction of slit
-                SumBkgFluxSpectrum = SumCurvedApertures(SpectrumImage, ApertureTraceFuncDic, 
-                                                       apwindow=bkg_aperture, 
+                SumBkgFluxSpectrum = SumCurvedApertures(SpectrumImage, ApertureTraceFuncDic,
+                                                       apwindow=bkg_aperture,
                                                        EdgepixelOrder = 2,
                                                        dispersion_Xaxis = Config['dispersion_Xaxis'],
                                                        ShowPlot=False)
                 BkgFluxSpectrumList.append(SumBkgFluxSpectrum)
                 if Config['VarianceExt'] is not None:
-                    SumBkgVariance = SumCurvedApertures(VarianceImage, ApertureTraceFuncDic, 
-                                                       apwindow=bkg_aperture, 
+                    SumBkgVariance = SumCurvedApertures(VarianceImage, ApertureTraceFuncDic,
+                                                       apwindow=bkg_aperture,
                                                        EdgepixelOrder = 2,
                                                        dispersion_Xaxis = Config['dispersion_Xaxis'],
                                                        ShowPlot=False)
