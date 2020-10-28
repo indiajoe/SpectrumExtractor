@@ -904,7 +904,9 @@ def main(raw_args=None):
         crgain = fheader[Config['CosmicRayCleanGain']] if isinstance(Config['CosmicRayCleanGain'],str) else Config['CosmicRayCleanGain']
         SpectrumImage , cmask = cosmicray_lacosmic(SpectrumImage,
                                                    sigclip=Config['CosmicRayCleanSigclip'],
-                                                   gain=crgain)
+                                                   gain=crgain,gain_apply=False)
+        logging.info('Cleaned {0} cosmic ray pixels'.format(np.sum(cmask)))
+        SpectrumImage = SpectrumImage.value
         fheader['LACOSMI'] = (np.sum(cmask),'Number of CR pixel fix by L.A. Cosmic')
         fheader['HISTORY'] = 'Fixed the CosmicRays using LACosmic'
         if Config['VarianceExt'] is not None:
