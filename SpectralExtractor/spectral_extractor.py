@@ -825,29 +825,41 @@ def main(raw_args=None):
         logging.warning('Skipping this image extraction..')
         sys.exit(1)
 
+    ################################################################################
+    # Starting Extraction process
+    ################################################################################
     logging.info('Extracting {0}..'.format(SpectrumFile))
     fheader = fits.getheader(SpectrumFile)
 
+    ################################################################################
+    # Get/Create the apertrue trace for extraction
+    ################################################################################
     ApertureTraceFilename = Config['ContinuumFile']+'_trace.pkl'
-    if os.path.isfile(ApertureTraceFilename):
+    if os.path.isfile(ApertureTraceFilename):  # Save time and load a pre-existing aperture trace
         logging.info('Loading existing trace coordinates {0}'.format(ApertureTraceFilename))
         ApertureCenters = pickle.load(open(ApertureTraceFilename,'rb'))
     else:
-        # First Load/Create the Aperture Label file to label and extract trace form continuum file
+        # First Load/Create the Aperture Label file to label and extract trace from continuum file
         ###########
         if os.path.isfile(str(Config['ApertureLabel'])):
             ApertureLabel = np.load(Config['ApertureLabel'])
         else:
             # ApertureLabel = CreateApertureLabelByThresholding(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],bsize=51,offset=0,minarea=2000, ShowPlot=True,DirectlyEnterRelabel= True)
-            ApertureLabel, ApertureCenters_Trace1 = CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],startLoc=None,avgHWindow=21,TraceHWidth=5,dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=0.4, extrapolate_order=2, ShowPlot=True, return_trace=True) 
+            ApertureLabel, ApertureCenters_Trace1 = CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
+                                                                                   startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
+                                                                                   TraceHWidth=Config['HWidth_inXD'],trace_fit_deg=Config['ApertureTraceFuncDegree'],
+                                                                                   dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=Config['extrapolate_thresh_forTrace'], 
+                                                                                   extrapolate_order=Config['extrapolate_order_forTrace'], ShowPlot=Config['ShowPlot_Trace'], 
+                                                                                   return_trace=True) 
             # Save the aperture label if a non existing filename was provided as input
             if isinstance(Config['ApertureLabel'],str):
                 np.save(Config['ApertureLabel'],ApertureLabel)
         ###########
         
         # Trace the center of the apertures
-        ApertureCenters = FitApertureCenters(Config['ContinuumFile'],ApertureLabel,apwindow=(-7,+7),
-                                             dispersion_Xaxis = Config['dispersion_Xaxis'], ShowPlot=False)
+        ApertureCenters = FitApertureCenters(Config['ContinuumFile'],ApertureLabel,
+                                             apwindow=(-Config['HWidth_inXD'],Config['HWidth_inXD']),
+                                             dispersion_Xaxis = Config['dispersion_Xaxis'], ShowPlot=Config['ShowPlot_Trace'])
         #Save for future
         with open(ApertureTraceFilename,'wb') as tracepickle:
             pickle.dump(ApertureCenters,tracepickle)
@@ -855,7 +867,8 @@ def main(raw_args=None):
     fheader['APFILE'] = (os.path.basename(ApertureTraceFilename), 'Aperture Trace Filename')
 
     # Obtain the tracing function of each aperture
-    ApertureTraceFuncDic = Get_ApertureTraceFunction(ApertureCenters,deg=4)
+    ApertureTraceFuncDic = Get_ApertureTraceFunction(ApertureCenters,
+                                                     deg=Config['ApertureTraceFuncDegree'])
     # Obtain the Slit Shear of each order 
     SlitShearFuncDic = Get_SlitShearFunction(ApertureCenters)
 
