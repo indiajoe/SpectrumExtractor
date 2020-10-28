@@ -7,16 +7,19 @@ import logging
 import numpy as np
 import re
 from astropy.io import fits
-from astropy.stats import mad_std
+from astropy.stats import mad_std, biweight_location
 import matplotlib.pyplot as plt
 from skimage import filters
 from skimage import morphology
+import scipy
 from scipy import ndimage, signal
 import scipy.interpolate as interp
 import scipy.optimize as optimize
 import pickle
 from ccdproc import cosmicray_lacosmic
-from WavelengthCalibrationTool.recalibrate import ReCalibrateDispersionSolution, scale_interval_m1top1
+from WavelengthCalibrationTool.recalibrate import (ReCalibrateDispersionSolution,
+                                                   scale_interval_m1top1,
+                                                   calculate_pixshift_with_phase_cross_correlation)
 from WavelengthCalibrationTool.utils import calculate_cov_matrix_fromscipylsq
 
 try:
@@ -448,6 +451,85 @@ def Get_SlitShearFunction(ApertureCenters):
 
     return ApertureSlitShearFuncDic
 
+def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0', DWindowToUse=None, StripWidth=50,
+                       Apodize=True, bkg_medianfilt=False,dispersion_Xaxis=True):
+    """ Calculates the avg shift in XD to match SpectrumImage to RefImage
+    Returns Avg_XD_shift coeffiencts in the domain the XD pixels are scaled to -1 to 1 """
+    if isinstance(RefImage,str):
+        RefImage = fits.getdata(RefImage)
+    else:
+        RefImage = RefImage
+
+    # Transpose the image if dispersion is not along X axis
+    if not dispersion_Xaxis:
+        SpectrumImage = SpectrumImage.T
+        RefImage = RefImage.T
+
+    ApodizingWindow = scipy.signal.hamming(StripWidth)  # We use HAmming window to apodise the edges of each stripe
+
+    if DWindowToUse is None:
+        DWindowToUse = (1,-1)
+    NoOfXDstripes = int(SpectrumImage[:,DWindowToUse[0]:DWindowToUse[1]].shape[1]/StripWidth)
+
+    XDShiftList = []
+    for i,(XDSliceSpec,XDSliceRef) in enumerate(zip(np.split(SpectrumImage[:,DWindowToUse[0]:DWindowToUse[0]+NoOfXDstripes*StripWidth],
+                                                           NoOfXDstripes,axis=1),
+                                                  np.split(RefImage[:,DWindowToUse[0]:DWindowToUse[0]+NoOfXDstripes*StripWidth],
+                                                           NoOfXDstripes,axis=1))):
+        SumApFluxSpectrum = np.sum(XDSliceSpec*ApodizingWindow,axis=1)
+        SumApRefSpectrum = np.sum(XDSliceRef*ApodizingWindow,axis=1)
+        SigmaArrayWt = np.sqrt(np.abs(SumApFluxSpectrum))
+        SigmaArrayWt = np.clip(SigmaArrayWt,np.percentile(SigmaArrayWt,95),None) # put lower limit on sigma at 95 percentile to avoid zero sigmas
+        if bkg_medianfilt: # Subtract a median filtered bkg in the XD slice
+            SumApFluxSpectrum -= signal.medfilt(SumApFluxSpectrum,kernel_size=bkg_medianfilt)
+            SumApRefSpectrum -= signal.medfilt(SumApRefSpectrum,kernel_size=bkg_medianfilt)
+
+        newRefFlux = np.vstack([np.arange(len(SumApRefSpectrum)),SumApRefSpectrum]).T
+        # Get a quick estimate for the pixel shift
+        guess_pshift = calculate_pixshift_with_phase_cross_correlation(SumApFluxSpectrum,SumApRefSpectrum,upsample_factor=10)
+        DomainRange = (min(newRefFlux[:,0]), max(newRefFlux[:,0]))
+        guess_params = [np.percentile(SumApFluxSpectrum,98)/np.percentile(SumApRefSpectrum,98) ,guess_pshift*2./(DomainRange[1]-DomainRange[0])]
+        if int(XDshiftmodel[1:]) == 1:
+            guess_params.extend([1])
+        elif int(XDshiftmodel[1:]) > 1:
+            guess_params.extend([0]*(int(XDshiftmodel[1:])-1))
+
+        try:
+            shifted_pixels, fitted_driftp = ReCalibrateDispersionSolution(SumApFluxSpectrum,newRefFlux,
+                                                                          method=XDshiftmodel,
+                                                                          sigma = SigmaArrayWt,
+                                                                          initial_guess=guess_params)
+        except (RuntimeError,ValueError) as e:
+            logging.warning(e)
+            logging.warning('Failed Refitting aperture at {0} D pixel position'.format(DWindowToUse[0]+i*StripWidth))
+        else:
+            plt.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0])
+            plt.plot(newRefFlux[:,0],SumApFluxSpectrum)
+            plt.plot(shifted_pixels,SumApFluxSpectrum)
+            plt.show()
+            logging.debug('XD offset fit {0}:{1}'.format(i,fitted_driftp))
+            XDShiftList.append(fitted_driftp)
+
+
+    Avg_XD_shift = biweight_location(np.array(XDShiftList),axis=0)[1:] #remove the flux scale coeff
+
+    return Avg_XD_shift, DomainRange
+
+def ApplyXDshiftToApertureCenters(ApertureCenters,Avg_XD_shift,PixDomain):
+    """ Returns the shifted Aperture centers after applying the shift """
+    ShiftedApertureCenters = {}
+    for aper in ApertureCenters:
+        mean_y = np.nanmedian(ApertureCenters[aper][1,:])
+        scaled_y = scale_interval_m1top1(mean_y, a=PixDomain[0],b=PixDomain[1])
+        shifted_scaled_y = np.polynomial.polynomial.polyval(scaled_y, Avg_XD_shift)
+        shifted_mean_y = scale_interval_m1top1(shifted_scaled_y,
+                                               a=PixDomain[0],b=PixDomain[1],inverse_scale=True)
+        y_offset = shifted_mean_y - mean_y
+        ShiftedApertureCenters[aper] = np.copy(ApertureCenters[aper])
+        ShiftedApertureCenters[aper][1,:] = ShiftedApertureCenters[aper][1,:] - y_offset
+    return ShiftedApertureCenters
+
+
 def RectifyCurvedApertures(SpectrumFile,Twidth,
                            ApertureTraceFuncDic,SlitShearFuncDic,
                            dispersion_Xaxis = True):
@@ -832,7 +914,7 @@ def main(raw_args=None):
     fheader = fits.getheader(SpectrumFile)
 
     ################################################################################
-    # Get/Create the apertrue trace for extraction
+    # Get/Create the apertrue trace centers for extraction
     ################################################################################
     ApertureTraceFilename = Config['ContinuumFile']+'_trace.pkl'
     if os.path.isfile(ApertureTraceFilename):  # Save time and load a pre-existing aperture trace
@@ -866,11 +948,10 @@ def main(raw_args=None):
 
     fheader['APFILE'] = (os.path.basename(ApertureTraceFilename), 'Aperture Trace Filename')
 
-    # Obtain the tracing function of each aperture
-    ApertureTraceFuncDic = Get_ApertureTraceFunction(ApertureCenters,
-                                                     deg=Config['ApertureTraceFuncDegree'])
-    # Obtain the Slit Shear of each order
-    SlitShearFuncDic = Get_SlitShearFunction(ApertureCenters)
+
+    ################################################################################
+    # Load and pre process the spectrum before extraction
+    ################################################################################
 
     # Load the spectrum array
     SpectrumImage = fits.getdata(SpectrumFile)
@@ -912,8 +993,37 @@ def main(raw_args=None):
         if Config['VarianceExt'] is not None:
             pass  # In future update the VarianceImage to reflect the fixing of cosmic rays
 
+    ################################################################################
+    # Create the final aperture trace function for the image to be extracted
+    ################################################################################
+    # If requested to refit the apertures in the XD direction
+    if Config['ReFitApertureInXD']:
+        if Config['ReFitApertureInXD'] is True:
+            XDshiftmodel = 'p0'
+        else:
+            XDshiftmodel = Config['ReFitApertureInXD']
+        logging.info('ReFitting the XD position of aperture to the spectrum using model {0}'.format(XDshiftmodel))
+        # Get the XD shift required between the ContinuumFile based aperture and Spectrum to extract
+        Avg_XD_shift, PixDomain = CalculateShiftInXD(SpectrumImage,RefImage=Config['ContinuumFile'],
+                                                     XDshiftmodel=XDshiftmodel,DWindowToUse=Config['ReFitApertureInXD_DWindow'],
+                                                     StripWidth=4*Config['AvgHWindow_forTrace'],Apodize=True,
+                                                     bkg_medianfilt=Config['ReFitApertureInXD_BkgMedianFilt'],
+                                                     dispersion_Xaxis=Config['dispersion_Xaxis'])
+        logging.info('Fitted shift in XD position :{0} (in -1to1 domain of {1})'.format(Avg_XD_shift,PixDomain))
+        # Apply the XD shift to the aperture centers
+        ApertureCenters = ApplyXDshiftToApertureCenters(ApertureCenters,Avg_XD_shift,PixDomain)
 
+    # Obtain the tracing function of each aperture
+    ApertureTraceFuncDic = Get_ApertureTraceFunction(ApertureCenters,
+                                                     deg=Config['ApertureTraceFuncDegree'])
+    # Obtain the Slit Shear of each order
+    SlitShearFuncDic = Get_SlitShearFunction(ApertureCenters)
+
+
+    ################################################################################
     # Spectral Extraction starts here
+    ################################################################################
+
     BkgFluxSpectrumList = []   # Lists to store optian bkg spectrum
     BkgFluxVarSpectrumList = []
 
