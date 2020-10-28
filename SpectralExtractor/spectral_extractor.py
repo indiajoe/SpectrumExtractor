@@ -16,9 +16,14 @@ import scipy.interpolate as interp
 import scipy.optimize as optimize
 import pickle
 from ccdproc import cosmicray_lacosmic 
-from RVEstimator.interpolators import BandLimited2DInterpolator
 from WavelengthCalibrationTool.recalibrate import ReCalibrateDispersionSolution, scale_interval_m1top1
 from WavelengthCalibrationTool.utils import calculate_cov_matrix_fromscipylsq
+
+try:
+    from RVEstimator.interpolators import BandLimited2DInterpolator
+except ImportError:
+    logging.warning('Failed to import RVEstimator module for BandLimited2D Interpolator. Rectification option will not work without that.')
+
 try:
     from functools32 import partial
     import ConfigParser
