@@ -617,6 +617,10 @@ def SumCurvedApertures(SpectrumFile, ApertureTraceFuncDic, apwindow=(None,None),
     for aper in apertures:
         # First create the pixel mapping
         XDCoordsCenter = ApertureTraceFuncDic[aper](DispCoords)
+        # Clip any pixel coordinates which goes outside ImageArray during extraction
+        XDCoordsCenter = np.clip(XDCoordsCenter,
+                                 0-(apwindow[0]-EdgepixelOrder),
+                                 ImageArray.shape[0]-(apwindow[1]+EdgepixelOrder))
         # Cut out a Rectangle strip of interest for lower memory and faster calculations
         StripStart = int(np.rint(np.min(XDCoordsCenter)+apwindow[0]-EdgepixelOrder))
         StripEnd = int(np.rint(np.max(XDCoordsCenter)+apwindow[1]+EdgepixelOrder))
