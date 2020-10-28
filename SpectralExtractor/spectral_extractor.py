@@ -18,6 +18,7 @@ import pickle
 from ccdproc import cosmicray_lacosmic 
 from RVEstimator.interpolators import BandLimited2DInterpolator
 from WavelengthCalibrationTool.recalibrate import ReCalibrateDispersionSolution, scale_interval_m1top1
+from WavelengthCalibrationTool.utils import calculate_cov_matrix_fromscipylsq
 try:
     from functools32 import partial
     import ConfigParser
@@ -247,7 +248,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
     # Now start fitting the XD cut plot across the dispersion
 
     # Create a dictionary to save dcoordinates of each order
-    FullCoorindateOfTraceDic = {o:[[d],[xd]] for o,d,xd in zip(LabelList,[startLoc]*len(LabelList),XDCenterList)}
+    FullCoorindateOfTraceDic = {o:[[d],[xd],[xde]] for o,d,xd,xde in zip(LabelList,[startLoc]*len(LabelList),XDCenterList,XDCenterList_err)}
 
     # First step to higher pixels from startLoc position and then step to lower positions
     for stepDLoc in [avgHWindow,-1*avgHWindow]:
@@ -297,6 +298,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
                     for i,o in enumerate(LabelList):
                         FullCoorindateOfTraceDic[o][0].append(newDLoc)
                         FullCoorindateOfTraceDic[o][1].append(newXDCenterList[i])
+                        FullCoorindateOfTraceDic[o][2].append(max(0.05,newXDCenterList_err[i])) # min error is set to 0.05
 
                     #Change the Reference to the new DLoc position
                     newRefFlux = np.vstack([newpixels,newFlux]).T
@@ -387,19 +389,28 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
         # Loop along the dispersion pixels
         # Fit the profile for each column to obtian the accurate centroid in each column
         CenterXDcoo = []
-        
+        CenterXDcooErr = []
         ampl = 1
         for d,xd,flux in zip(dpix,xdapL2Upix,Rectifiedarray):
             # initial estimate
             p0 = [ampl,xd[len(xd)//2]]
-            p,ier = optimize.leastsq(errorfuncProfileFit, p0, args=(psf,xd,flux))
-            CenterXDcoo.append(boundvalue(p[1],np.min(xd),np.max(xd))) # use the boundry values incase the fitted p[1] is outside the bounds 
+            fitoutput = optimize.least_squares(errorfuncProfileFit, p0, 
+                                               bounds=([0,np.min(xd)],[np.inf,np.max(xd)]), 
+                                               args=(psf,xd,flux))
+            p = fitoutput.x
+            pcov = calculate_cov_matrix_fromscipylsq(fitoutput,absolute_sigma=False)
+            # p,ier = optimize.leastsq(errorfuncProfileFit, p0, args=(psf,xd,flux))
+            # CenterXDcoo.append(boundvalue(p[1],np.min(xd),np.max(xd))) # use the boundry values incase the fitted p[1] is outside the bounds 
+            CenterXDcoo.append(p[1])
+            CenterXDcooErr.append(np.sqrt(pcov[1,1]))
             ampl = p[0] # update with the lastest amplitude estimate
 
-        ApertureCenters[aper] = np.array([dpix,CenterXDcoo])
+        # Clip the errors less than 0.05 pixel to 0.05
+        ApertureCenters[aper] = np.array([dpix,CenterXDcoo,np.clip(CenterXDcooErr,0.05,None)])
         if ShowPlot:
             fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2)
-            ax1.plot(ApertureCenters[aper][0,:],ApertureCenters[aper][1,:])
+            ax1.errorbar(ApertureCenters[aper][0,:],ApertureCenters[aper][1,:],yerr=ApertureCenters[aper][2,:])
+            ax1.set_ylim((np.min(ApertureCenters[aper][1,:])-5,np.max(ApertureCenters[aper][1,:])+5))
             ax2.plot(np.arange(apwindow[0],apwindow[1]+1), mean_profile)
             plt.show()
 
@@ -411,9 +422,13 @@ def Get_ApertureTraceFunction(ApertureCenters,deg=4):
         based on the best fit of points in ApertureCenters """
     ApertureTraceFuncDic = {}
     for aper in ApertureCenters:
+        weights = 1/ApertureCenters[aper][2,:]
+        weights[~np.isfinite(weights)] = 0
+
         # fit Chebyshev polynomial to the data to obtain cheb coeffs
         cc = np.polynomial.chebyshev.chebfit(ApertureCenters[aper][0,:], 
-                                              ApertureCenters[aper][1,:], deg)
+                                             ApertureCenters[aper][1,:], deg, 
+                                             w=weights)
         ApertureTraceFuncDic[aper] = partial(np.polynomial.chebyshev.chebval, c= cc) 
 
     return ApertureTraceFuncDic
