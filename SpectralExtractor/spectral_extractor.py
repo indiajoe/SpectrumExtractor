@@ -669,17 +669,27 @@ def fix_badpixels(SpectrumImage,BPMask,replace_with_nan=False):
     return SpectrumImage
             
 
-def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, VarianceSpectrumDic=None, fitsheader=None):
+def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, VarianceSpectrumDic=None, fitsheader=None,
+                          BkgFluxSpectrumList=(), BkgFluxVarSpectrumList=()):
     """ Writes the FluxSpectrumDic into fits image with filename outfilename 
     with fitsheader as header."""
     # First create a 2D array to hold all apertures of the spectrum
     Spectrumarray = np.array([FluxSpectrumDic[i] for i in sorted(FluxSpectrumDic.keys())])
     hdu = fits.PrimaryHDU(Spectrumarray,header=fitsheader)
     hdulist =fits.HDUList([hdu])
+    for i,bkgfluxdic in enumerate(BkgFluxSpectrumList):
+        bkgfluxSpectrumarray = np.array([bkgfluxdic[i] for i in sorted(bkgfluxdic.keys())])
+        hdu_bkg = fits.ImageHDU(bkgfluxSpectrumarray,name='Bkg Flux {0}'.format(i))
+        hdulist.append(hdu_bkg)
     if VarianceSpectrumDic is not None:
         VarianceSpectrumarray = np.array([VarianceSpectrumDic[i] for i in sorted(VarianceSpectrumDic.keys())])
         hdu_var = fits.ImageHDU(VarianceSpectrumarray,name='Variance')
         hdulist.append(hdu_var)
+        for i,bkgvardic in enumerate(BkgFluxVarSpectrumList):
+            bkgvarSpectrumarray = np.array([bkgvardic[i] for i in sorted(bkgvardic.keys())])
+            hdu_bkg_var = fits.ImageHDU(bkgvarSpectrumarray,name='Bkg Variance {0}'.format(i))
+            hdulist.append(hdu_bkg_var)
+
     hdulist.writeto(outfilename)
     return outfilename
 
@@ -856,6 +866,10 @@ def main(raw_args=None):
             pass  # In future update the VarianceImage to reflect the fixing of cosmic rays
 
 
+    # Spectral Extraction starts here
+    BkgFluxSpectrumList = []   # Lists to store optian bkg spectrum
+    BkgFluxVarSpectrumList = []
+
     if Config['RectificationMethod'] == 'Bandlimited':
         logging.info('Doing Rectification :{0}'.format(Config['RectificationMethod']))
         # Get rectified 2D spectrum of each aperture of the spectrum file
@@ -894,7 +908,30 @@ def main(raw_args=None):
                                                    EdgepixelOrder = 3,
                                                    dispersion_Xaxis = Config['dispersion_Xaxis'],
                                                    ShowPlot=False)
-                
+        # Now do sum extraction of Bkg pixel window if provided
+        if Config['BkgWindows'] is not None:
+            logging.info('Doing Bkg extraction from :{0}'.format(Config['BkgWindows']))
+            # No rectification needs to be done.
+            # Directly extract from curved data
+            if isinstance(Config['BkgWindows'][0],(list,tuple)):
+                BkgApertrueWindowList = Config['BkgWindows']
+            else:
+                BkgApertrueWindowList = [Config['BkgWindows']]
+            for bkg_aperture in BkgApertrueWindowList:
+                # Sum the flux in XD direction of slit
+                SumBkgFluxSpectrum = SumCurvedApertures(SpectrumImage, ApertureTraceFuncDic, 
+                                                       apwindow=bkg_aperture, 
+                                                       EdgepixelOrder = 2,
+                                                       dispersion_Xaxis = Config['dispersion_Xaxis'],
+                                                       ShowPlot=False)
+                BkgFluxSpectrumList.append(SumBkgFluxSpectrum)
+                if Config['VarianceExt'] is not None:
+                    SumBkgVariance = SumCurvedApertures(VarianceImage, ApertureTraceFuncDic, 
+                                                       apwindow=bkg_aperture, 
+                                                       EdgepixelOrder = 2,
+                                                       dispersion_Xaxis = Config['dispersion_Xaxis'],
+                                                       ShowPlot=False)
+                    BkgFluxVarSpectrumList.append(SumBkgVariance)
 
         else:
             raise NotImplementedError('Unknown Extraction method {0}'.format(Config['ExtractionMethod']))
@@ -908,7 +945,8 @@ def main(raw_args=None):
     fheader['HISTORY'] = 'Extracted spectrum to 1D'
     if Config['VarianceExt'] is None:
         SumApVariance = None
-    _ = WriteFitsFileSpectrum(SumApFluxSpectrum, OutputFile, VarianceSpectrumDic=SumApVariance, fitsheader=fheader)
+    _ = WriteFitsFileSpectrum(SumApFluxSpectrum, OutputFile, VarianceSpectrumDic=SumApVariance, fitsheader=fheader,
+                              BkgFluxSpectrumList=BkgFluxSpectrumList, BkgFluxVarSpectrumList=BkgFluxVarSpectrumList)
     logging.info('Extracted {0} => {1} output file'.format(SpectrumFile,OutputFile))
 
 if __name__ == '__main__':
