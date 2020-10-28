@@ -5,6 +5,7 @@ import sys
 import os
 import logging
 import numpy as np
+import re
 from astropy.io import fits
 from astropy.stats import mad_std
 import matplotlib.pyplot as plt
@@ -660,6 +661,7 @@ def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, VarianceSpectrumDic=None
 def parse_str_to_types(string):
     """ Converts string to different object types they represent.
     Supported formats: True,Flase,None,int,float,list,tuple"""
+    string = string.strip() # remove any extra white space paddings
     if string == 'True':
         return True
     elif string == 'False':
@@ -669,7 +671,10 @@ def parse_str_to_types(string):
     elif string.lstrip('-+ ').isdigit():
         return int(string)
     elif (string[0] in '[(') and (string[-1] in ')]'): # Recursively parse a list/tuple into a list
-        return [parse_str_to_types(s) for s in string.strip('()[]').split(',')]
+        if len(string[1:-1]) == 0:
+            return []
+        else:
+            return [parse_str_to_types(s) for s in re.split(r',\s*(?=[^)]*(?:\(|$))', string[1:-1])]  # split at comma unless it is inside a ( )
     else:
         try:
             return float(string)
