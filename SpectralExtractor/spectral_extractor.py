@@ -385,9 +385,11 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
         xdapL2Upix[xdapL2Upix >= ImageArray.shape[0]] = ImageArray.shape[0]-1
         xdapL2Upix[xdapL2Upix < 0] = 0
 
-        Rectifiedarray = ImageArray[[xdapL2Upix,
-                                     np.repeat(dpix[:,np.newaxis],xdapL2Upix.shape[1],axis=1)]]
-        mean_profile = np.mean(Rectifiedarray,axis=0)
+        Rectifiedarray = ImageArray[(xdapL2Upix,
+                                     np.repeat(dpix[:,np.newaxis],xdapL2Upix.shape[1],axis=1))]
+        weights_foravg = np.sum(Rectifiedarray,axis=1) 
+        weights_foravg = np.clip(weights_foravg,0,np.percentile(weights_foravg,98))  # remove -ve weights and clip 2 percentile max points
+        mean_profile = np.average(Rectifiedarray,axis=0,weights=weights_foravg)  # weighted propotional to flux level
         # PSF interpolated function
         psf = interp.InterpolatedUnivariateSpline(np.arange(apwindow[0],apwindow[1]+1), mean_profile)
 
