@@ -886,6 +886,9 @@ def main(raw_args=None):
                             filename=args.logfile, filemode='a')
         logging.getLogger().addHandler(logging.StreamHandler(sys.stdout)) # Sent info to the stdout as well
 
+    # disable matplotlib's debug logging
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+
     Config = create_configdict_from_file(args.ConfigFile,listOfConfigSections=['processing_settings',
                                                                                'tracing_settings',
                                                                                'extraction_settings'])
