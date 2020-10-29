@@ -849,7 +849,7 @@ def create_configdict_from_file(configFilename,listOfConfigSections=None,flatten
 
 def parse_args(raw_args=None):
     """ Parses the command line input arguments """
-    parser = argparse.ArgumentParser(description="Spectral Extraction Tool")
+    parser = argparse.ArgumentParser(description="Spectrum Extraction Tool")
     parser.add_argument('SpectrumFile', type=str,
                         help="The 2D Spectrum image fits file")
     parser.add_argument('ConfigFile', type=str,

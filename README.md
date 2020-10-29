@@ -1,4 +1,4 @@
-# SpectralExtractor
+# SpectrumExtractor
 
-Spectral Extractor tool to extract 1D spectrum out of 2D image
+Spectrum Extractor tool to extract 1D spectrum out of 2D image
 
