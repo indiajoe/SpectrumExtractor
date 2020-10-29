@@ -1005,18 +1005,22 @@ def main(raw_args=None):
     ################################################################################
     # If requested to refit the apertures in the XD direction
     if Config['ReFitApertureInXD']:
-        if Config['ReFitApertureInXD'] is True:
-            XDshiftmodel = 'p0'
+        if isinstance(Config['ReFitApertureInXD'],(list,tuple)):
+            Avg_XD_shift, PixDomain = Config['ReFitApertureInXD'][0], Config['ReFitApertureInXD'][1]
+            logging.info('Applying shift in XD position :{0} in -1to1 domain of {1}'.format(tuple(Avg_XD_shift),tuple(PixDomain)))
         else:
-            XDshiftmodel = Config['ReFitApertureInXD']
-        logging.info('ReFitting the XD position of aperture to the spectrum using model {0}'.format(XDshiftmodel))
-        # Get the XD shift required between the ContinuumFile based aperture and Spectrum to extract
-        Avg_XD_shift, PixDomain = CalculateShiftInXD(SpectrumImage,RefImage=Config['ContinuumFile'],
-                                                     XDshiftmodel=XDshiftmodel,DWindowToUse=Config['ReFitApertureInXD_DWindow'],
-                                                     StripWidth=4*Config['AvgHWindow_forTrace'],Apodize=True,
-                                                     bkg_medianfilt=Config['ReFitApertureInXD_BkgMedianFilt'],
-                                                     dispersion_Xaxis=Config['dispersion_Xaxis'])
-        logging.info('Fitted shift in XD position :{0} (in -1to1 domain of {1})'.format(Avg_XD_shift,PixDomain))
+            if Config['ReFitApertureInXD'] is True:
+                XDshiftmodel = 'p0'
+            else:
+                XDshiftmodel = Config['ReFitApertureInXD']
+            logging.info('ReFitting the XD position of aperture to the spectrum using model {0}'.format(XDshiftmodel))
+            # Get the XD shift required between the ContinuumFile based aperture and Spectrum to extract
+            Avg_XD_shift, PixDomain = CalculateShiftInXD(SpectrumImage,RefImage=Config['ContinuumFile'],
+                                                         XDshiftmodel=XDshiftmodel,DWindowToUse=Config['ReFitApertureInXD_DWindow'],
+                                                         StripWidth=4*Config['AvgHWindow_forTrace'],Apodize=True,
+                                                         bkg_medianfilt=Config['ReFitApertureInXD_BkgMedianFilt'],
+                                                         dispersion_Xaxis=Config['dispersion_Xaxis'],ShowPlot=Config['ShowPlot_Trace'])
+            logging.info('Fitted shift in XD position :{0} in -1to1 domain of {1}'.format(tuple(Avg_XD_shift),tuple(PixDomain)))
         # Apply the XD shift to the aperture centers
         ApertureCenters = ApplyXDshiftToApertureCenters(ApertureCenters,Avg_XD_shift,PixDomain)
 
