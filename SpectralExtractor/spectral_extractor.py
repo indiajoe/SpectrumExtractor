@@ -452,7 +452,7 @@ def Get_SlitShearFunction(ApertureCenters):
     return ApertureSlitShearFuncDic
 
 def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0', DWindowToUse=None, StripWidth=50,
-                       Apodize=True, bkg_medianfilt=False,dispersion_Xaxis=True):
+                       Apodize=True, bkg_medianfilt=False,dispersion_Xaxis=True,ShowPlot=False):
     """ Calculates the avg shift in XD to match SpectrumImage to RefImage
     Returns Avg_XD_shift coeffiencts in the domain the XD pixels are scaled to -1 to 1 """
     if isinstance(RefImage,str):
@@ -503,15 +503,19 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0', DWindowT
             logging.warning(e)
             logging.warning('Failed Refitting aperture at {0} D pixel position'.format(DWindowToUse[0]+i*StripWidth))
         else:
-            plt.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0])
-            plt.plot(newRefFlux[:,0],SumApFluxSpectrum)
-            plt.plot(shifted_pixels,SumApFluxSpectrum)
-            plt.show()
             logging.debug('XD offset fit {0}:{1}'.format(i,fitted_driftp))
             XDShiftList.append(fitted_driftp)
-
+            if ShowPlot:
+                plt.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0],color='k',alpha=0.3)
+                plt.plot(shifted_pixels,SumApFluxSpectrum,color='g',alpha=0.3)
 
     Avg_XD_shift = biweight_location(np.array(XDShiftList),axis=0)[1:] #remove the flux scale coeff
+
+    if ShowPlot:
+        plt.title('{0}:  {1}'.format(tuple(Avg_XD_shift),tuple(DomainRange)))
+        plt.xlabel('XD pixels')
+        plt.ylabel('Apodized counts')
+        plt.show()
 
     return Avg_XD_shift, DomainRange
 
