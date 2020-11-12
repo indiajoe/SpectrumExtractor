@@ -1076,6 +1076,9 @@ def main(raw_args=None):
                                                    EdgepixelOrder = 3,
                                                    dispersion_Xaxis = Config['dispersion_Xaxis'],
                                                    ShowPlot=False)
+        else:
+            raise NotImplementedError('Unknown Extraction method {0}'.format(Config['ExtractionMethod']))
+
         # Now do sum extraction of Bkg pixel window if provided
         if Config['BkgWindows'] is not None:
             logging.info('Doing Bkg extraction from :{0}'.format(Config['BkgWindows']))
@@ -1101,8 +1104,6 @@ def main(raw_args=None):
                                                        ShowPlot=False)
                     BkgFluxVarSpectrumList.append(SumBkgVariance)
 
-        else:
-            raise NotImplementedError('Unknown Extraction method {0}'.format(Config['ExtractionMethod']))
     else:
         raise NotImplementedError('Unknown Rectification method {0}'.format(Config['RectificationMethod']))
 
