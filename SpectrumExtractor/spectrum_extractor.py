@@ -727,6 +727,103 @@ def SumCurvedApertures(SpectrumFile, ApertureTraceFuncDic, apwindow=(None,None),
 
     return ApertureSumDic
 
+
+def FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,VarianceArrayStrip,TopEdgeCoord,BottomEdgeCoord):
+    """ Returns flat-relative optimal extracted values from the aperture window on top of ImageArrayStrip, where the window is defined by the TopEdgeCoord, BottomEdgeCoord.
+        Only full pixels which fall completely inside the aperture window is used
+        Ref: https://arxiv.org/pdf/1311.5263.pdf, Equation 7 and 9
+    INPUT:
+        ImageArrayStrip : Numpy 2D array strip, where columns are the axis along which the aperture to sum is defined.
+        FlatArrayStrip : Numpy 2D array strip of the Flat, where columns are the axis along which the aperture to sum is defined.
+        VarianceArrayStrip : Numpy 2D array strip of the Variance image, where columns are the axis along which the aperture to sum is defined.
+        TopEdgeCoord: Numpy 1D array, with the same length as columns in ImageArrayStrip, ie. ImageArrayStrip.shape[1].
+                      This array defines the top edge subpixel coordinate of the mask.
+        BottomEdgeCoord: Numpy 1D array, with the same length as columns in ImageArrayStrip, ie. ImageArrayStrip.shape[1].
+                      This array defines the bottom edge subpixel coordinate of the mask.
+                      Note:  TopEdgeCoord - BottomEdgeCoord should be > 1. i.e., The aperture window should be larger than a pixel
+    OUTPUTS:
+        FlatRelativeFlux : Numpy 1D array, which contains the flat relative flux inside the pixel aperture along each column of ImageArrayStrip
+        VarFlatRelativeFlux : Numpy 1D array, which contains the variance of the flat relative flux inside the pixel aperture along each column of ImageArrayStrip
+    """
+
+    if np.any((TopEdgeCoord - BottomEdgeCoord) < 1):
+        raise ValueError('TopEdgeCoord - BottomEdgeCoord should be > 1. i.e., The aperture window should be larger than a pixel')
+
+    # To sum up all the pixels fully inside the aperture, create a mask
+    Igrid,Jgrid = np.mgrid[0:ImageArrayStrip.shape[0],0:ImageArrayStrip.shape[1]]
+    FullyInsidePixelMask = (Igrid >= np.int_(BottomEdgeCoord)+1 ) & (Igrid <= np.int_(TopEdgeCoord)-1 )
+
+    wFS = FlatArrayStrip*ImageArrayStrip/VarianceArrayStrip
+    wFF = FlatArrayStrip*FlatArrayStrip/VarianceArrayStrip
+
+    FullyInsidePixelSum_wFS = np.ma.sum(np.ma.array(wFS,mask=~FullyInsidePixelMask),axis=0).data
+    FullyInsidePixelSum_wFF = np.ma.sum(np.ma.array(wFF,mask=~FullyInsidePixelMask),axis=0).data
+
+    FlatRelativeFlux = FullyInsidePixelSum_wFS/FullyInsidePixelSum_wFF
+    VarFlatRelativeFlux = 1./np.ma.sum(np.ma.array(wFF,mask=~FullyInsidePixelMask),axis=0).data
+
+    return FlatRelativeFlux, VarFlatRelativeFlux
+
+def FlatRelativeOptimatExtraction(SpectrumFile, FlatFile, ApertureTraceFuncDic, VarianceImage=None,
+                                  apwindow=(None,None), apertures=None, dispersion_Xaxis=True, ShowPlot=False):
+    """ Returns the flat-relative optimal extrcation from unrectified curved aperture using pixels which are fully inside the apwindow.
+        Ref: https://arxiv.org/pdf/1311.5263.pdf
+    Input:
+      SpectrumFile: Spectrum image to extract
+      FlatFile: Continuum Flat relative to which extraction is to be done.
+      ApertureTraceFuncDic: Dictionary of function which traces the aperture
+      VarianceImage: VarianceImage of the array.
+      apwindow: The aperture window to use for extraction. Only pixels which are fully inside are used.
+    """
+    # Load from fits files if they are strings
+    ImageArray = fits.getdata(SpectrumFile) if isinstance(SpectrumFile,str) else SpectrumFile
+    FlatArray = fits.getdata(FlatFile) if isinstance(FlatFile,str) else FlatFile
+    # If VarianceImage is not provided assume poission noise
+    VarianceArray = VarianceImage if (VarianceImage is not None) else np.copy(SpectrumFile)
+
+    # Transpose the image if dispersion is not along X axis
+    if not dispersion_Xaxis:
+        ImageArray = ImageArray.T
+        FlatArray = FlatArray.T
+        VarianceArray = VarianceArray.T
+
+    if apertures is None :
+        apertures = ApertureTraceFuncDic.keys()
+
+    ApertureSumDic = {}
+    ApertureVarDic = {}
+    DispCoords = np.arange(ImageArray.shape[1])
+
+    for aper in apertures:
+        # First create the pixel mapping
+        XDCoordsCenter = ApertureTraceFuncDic[aper](DispCoords)
+        # Clip any pixel coordinates which goes outside ImageArray during extraction
+        XDCoordsCenter = np.clip(XDCoordsCenter,
+                                 0-apwindow[0],
+                                 ImageArray.shape[0]-apwindow[1])
+        # Cut out a Rectangle strip of interest for lower memory and faster calculations
+        StripStart = int(np.rint(np.min(XDCoordsCenter)+apwindow[0]))
+        StripEnd = int(np.rint(np.max(XDCoordsCenter)+apwindow[1]))
+        ImageArrayStrip = ImageArray[StripStart:StripEnd,:]
+        FlatArrayStrip = FlatArray[StripStart:StripEnd,:]
+        VarianceArrayStrip = VarianceArray[StripStart:StripEnd,:]
+        # New coordinates inside the Strip, Add 0.5 to convert pixel index to pixel center coordinate
+        XDCoordsCenterStrip = XDCoordsCenter - StripStart +0.5
+        TopEdgeCoord = XDCoordsCenterStrip + apwindow[1]
+        BottomEdgeCoord = XDCoordsCenterStrip + apwindow[0]
+        # Sum the flux inside the sub-pixel aperture window
+        ApertureSumDic[aper], ApertureVarDic[aper] = FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,VarianceArrayStrip,TopEdgeCoord,BottomEdgeCoord)
+
+    if ShowPlot:
+        plt.plot(ApertureSumDic[aper])
+        plt.ylabel('Sum of Counts')
+        plt.xlabel('pixels')
+        plt.title('Aperture : {0}'.format(aper))
+        plt.show()
+
+    return ApertureSumDic, ApertureVarDic
+
+
 def fix_badpixels(SpectrumImage,BPMask,replace_with_nan=False):
     """ Applies the bad mask (BPMask) on to the SpectrumImage to fix it """
     Mask = BPMask == 0
@@ -1079,6 +1176,14 @@ def main(raw_args=None):
                                                    EdgepixelOrder = 3,
                                                    dispersion_Xaxis = Config['dispersion_Xaxis'],
                                                    ShowPlot=False)
+
+        elif Config['ExtractionMethod'] == 'FlatRelativeOptimal':
+            # estimate the flux in XD direction of slit relative to flat
+            SumApFluxSpectrum, SumApVariance = FlatRelativeOptimatExtraction(SpectrumImage, Config['ContinuumFile'],ApertureTraceFuncDic,
+                                                                             VarianceImage=VarianceImage,
+                                                                             apwindow=Config['ApertureWindow'],
+                                                                             dispersion_Xaxis = Config['dispersion_Xaxis'],
+                                                                             ShowPlot=False)
         else:
             raise NotImplementedError('Unknown Extraction method {0}'.format(Config['ExtractionMethod']))
 
