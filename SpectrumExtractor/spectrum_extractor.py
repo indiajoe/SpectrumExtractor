@@ -923,7 +923,10 @@ def main(raw_args=None):
     ################################################################################
     # Get/Create the apertrue trace centers for extraction
     ################################################################################
-    ApertureTraceFilename = Config['ContinuumFile']+'_trace.pkl'
+    if Config['ApertureTraceFilename'] is not None:
+        ApertureTraceFilename = Config['ApertureTraceFilename']
+    else:
+        ApertureTraceFilename = Config['ContinuumFile']+'_trace.pkl'
     if os.path.isfile(ApertureTraceFilename):  # Save time and load a pre-existing aperture trace
         logging.info('Loading existing trace coordinates {0}'.format(ApertureTraceFilename))
         ApertureCenters = pickle.load(open(ApertureTraceFilename,'rb'))
