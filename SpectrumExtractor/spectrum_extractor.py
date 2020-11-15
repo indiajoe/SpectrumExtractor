@@ -728,7 +728,7 @@ def SumCurvedApertures(SpectrumFile, ApertureTraceFuncDic, apwindow=(None,None),
     return ApertureSumDic
 
 
-def FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,VarianceArrayStrip,TopEdgeCoord,BottomEdgeCoord):
+def FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,VarianceArrayStrip,TopEdgeCoord,BottomEdgeCoord,CRsigma=0):
     """ Returns flat-relative optimal extracted values from the aperture window on top of ImageArrayStrip, where the window is defined by the TopEdgeCoord, BottomEdgeCoord.
         Only full pixels which fall completely inside the aperture window is used
         Ref: https://arxiv.org/pdf/1311.5263.pdf, Equation 7 and 9
@@ -741,6 +741,8 @@ def FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,V
         BottomEdgeCoord: Numpy 1D array, with the same length as columns in ImageArrayStrip, ie. ImageArrayStrip.shape[1].
                       This array defines the bottom edge subpixel coordinate of the mask.
                       Note:  TopEdgeCoord - BottomEdgeCoord should be > 1. i.e., The aperture window should be larger than a pixel
+        CRsigma : float (default: 0)
+                      If CRsigma > 0, then cosmic ray rejection is done using the CRsigma as threshold
     OUTPUTS:
         FlatRelativeFlux : Numpy 1D array, which contains the flat relative flux inside the pixel aperture along each column of ImageArrayStrip
         VarFlatRelativeFlux : Numpy 1D array, which contains the variance of the flat relative flux inside the pixel aperture along each column of ImageArrayStrip
@@ -762,10 +764,20 @@ def FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,V
     FlatRelativeFlux = FullyInsidePixelSum_wFS/FullyInsidePixelSum_wFF
     VarFlatRelativeFlux = 1./np.ma.sum(np.ma.array(wFF,mask=~FullyInsidePixelMask),axis=0).data
 
+    if CRsigma > 0:
+        FluxMinusModel =  ImageArrayStrip - FlatArrayStrip * FlatRelativeFlux[np.newaxis,:]
+        FluxMinusModel_Var = VarianceArrayStrip - FlatArrayStrip*FlatArrayStrip * VarFlatRelativeFlux[np.newaxis,:]
+        CRpixelMask = FluxMinusModel > (CRsigma * FluxMinusModel_Var)
+        logging.info('Number of CR pixels rejected: {0}'.format(np.sum(CRpixelMask & FullyInsidePixelMask)))
+        NewVarianceArrayStrip = np.copy(VarianceArrayStrip)
+        NewVarianceArrayStrip[CRpixelMask & FullyInsidePixelMask] = np.inf
+        FlatRelativeFlux, VarFlatRelativeFlux = FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,
+                                                                                            NewVarianceArrayStrip,TopEdgeCoord,
+                                                                                            BottomEdgeCoord,CRsigma=0)
     return FlatRelativeFlux, VarFlatRelativeFlux
 
 def FlatRelativeOptimatExtraction(SpectrumFile, FlatFile, ApertureTraceFuncDic, VarianceImage=None,
-                                  apwindow=(None,None), apertures=None, dispersion_Xaxis=True, ShowPlot=False):
+                                  apwindow=(None,None), CRsigma=0, apertures=None, dispersion_Xaxis=True, ShowPlot=False):
     """ Returns the flat-relative optimal extrcation from unrectified curved aperture using pixels which are fully inside the apwindow.
         Ref: https://arxiv.org/pdf/1311.5263.pdf
     Input:
@@ -774,6 +786,8 @@ def FlatRelativeOptimatExtraction(SpectrumFile, FlatFile, ApertureTraceFuncDic, 
       ApertureTraceFuncDic: Dictionary of function which traces the aperture
       VarianceImage: VarianceImage of the array.
       apwindow: The aperture window to use for extraction. Only pixels which are fully inside are used.
+      CRsigma : float (default: 0)
+                If CRsigma > 0, then cosmic ray rejection is done using the CRsigma as threshold
     """
     # Load from fits files if they are strings
     ImageArray = fits.getdata(SpectrumFile) if isinstance(SpectrumFile,str) else SpectrumFile
@@ -812,8 +826,12 @@ def FlatRelativeOptimatExtraction(SpectrumFile, FlatFile, ApertureTraceFuncDic, 
         TopEdgeCoord = XDCoordsCenterStrip + apwindow[1]
         BottomEdgeCoord = XDCoordsCenterStrip + apwindow[0]
         # Sum the flux inside the sub-pixel aperture window
-        ApertureSumDic[aper], ApertureVarDic[aper] = FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,VarianceArrayStrip,TopEdgeCoord,BottomEdgeCoord)
-
+        ApertureSumDic[aper], ApertureVarDic[aper] = FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,
+                                                                                                 FlatArrayStrip,
+                                                                                                 VarianceArrayStrip,
+                                                                                                 TopEdgeCoord,
+                                                                                                 BottomEdgeCoord,
+                                                                                                 CRsigma=CRsigma)
     if ShowPlot:
         plt.plot(ApertureSumDic[aper])
         plt.ylabel('Sum of Counts')
@@ -1182,7 +1200,8 @@ def main(raw_args=None):
             SumApFluxSpectrum, SumApVariance = FlatRelativeOptimatExtraction(SpectrumImage, Config['ContinuumFile'],ApertureTraceFuncDic,
                                                                              VarianceImage=VarianceImage,
                                                                              apwindow=Config['ApertureWindow'],
-                                                                             dispersion_Xaxis = Config['dispersion_Xaxis'],
+                                                                             dispersion_Xaxis=Config['dispersion_Xaxis'],
+                                                                             CRsigma=Config['OptimalExt_CRsigma'],
                                                                              ShowPlot=False)
         else:
             raise NotImplementedError('Unknown Extraction method {0}'.format(Config['ExtractionMethod']))
