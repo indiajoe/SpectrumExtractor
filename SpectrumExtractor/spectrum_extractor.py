@@ -321,7 +321,8 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
     # First conver the dictionary values to a numpy array
     for o in LabelList:
         FullCoorindateOfTraceDic[o] = np.array(FullCoorindateOfTraceDic[o])
-    ApertureTraceFuncDic = Get_ApertureTraceFunction(FullCoorindateOfTraceDic,deg=trace_fit_deg)
+    pix_scale_function = partial(scale_interval_m1top1,a=0,b=ContinuumFile.shape[1])
+    ApertureTraceFuncDic = Get_ApertureTraceFunction(FullCoorindateOfTraceDic,deg=trace_fit_deg,domain_scale_function=pix_scale_function)
     # Now loop through each trace for setting the label
     for o in reversed(sorted(LabelList)):
         boundinside = partial(boundvalue,ll=0,ul=ApertureLabel.shape[0])
@@ -426,22 +427,36 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
 
     return ApertureCenters
 
+def function_eval_afterdomainscaling(x,func,domain_scale_function=None,**kwargs):
+    if domain_scale_function is None:
+        return func(x,**kargs)
+    else:
+        return func(domain_scale_function(x),**kwargs)
 
-def Get_ApertureTraceFunction(ApertureCenters,deg=4):
+def Get_ApertureTraceFunction(ApertureCenters,deg=4,return_coeff=False,domain_scale_function=None):
     """ Returns dictionary of aperture trace functions (degree = deg)
-        based on the best fit of points in ApertureCenters """
+        based on the best fit of points in ApertureCenters
+        if return_coeff is True, returns a dictionary of the coefficents as well"""
+    if domain_scale_function is None:
+        domain_scale_function = lambda x: x
     ApertureTraceFuncDic = {}
+    ApertureTraceCoeffDic = {}
     for aper in ApertureCenters:
         weights = 1/ApertureCenters[aper][2,:]
         weights[~np.isfinite(weights)] = 0
-
         # fit Chebyshev polynomial to the data to obtain cheb coeffs
-        cc = np.polynomial.chebyshev.chebfit(ApertureCenters[aper][0,:],
+        cc = np.polynomial.chebyshev.chebfit(domain_scale_function(ApertureCenters[aper][0,:]),
                                              ApertureCenters[aper][1,:], deg,
                                              w=weights)
-        ApertureTraceFuncDic[aper] = partial(np.polynomial.chebyshev.chebval, c= cc)
-
-    return ApertureTraceFuncDic
+        ApertureTraceFuncDic[aper] = partial(function_eval_afterdomainscaling,
+                                             func=np.polynomial.chebyshev.chebval,
+                                             domain_scale_function=domain_scale_function,
+                                             c=cc)
+        ApertureTraceCoeffDic[aper] = cc
+    if return_coeff:
+        return ApertureTraceFuncDic, ApertureTraceCoeffDic
+    else:
+        return ApertureTraceFuncDic
 
 def Get_SlitShearFunction(ApertureCenters):
     """ Returns dictionary of the Dispersion direction shear coefficent for the slit """
@@ -1143,8 +1158,10 @@ def main(raw_args=None):
         ApertureCenters = ApplyXDshiftToApertureCenters(ApertureCenters,Avg_XD_shift,PixDomain)
 
     # Obtain the tracing function of each aperture
+    pix_scale_function = partial(scale_interval_m1top1,a=0,b=SpectrumImage.shape[1])
     ApertureTraceFuncDic = Get_ApertureTraceFunction(ApertureCenters,
-                                                     deg=Config['ApertureTraceFuncDegree'])
+                                                     deg=Config['ApertureTraceFuncDegree'],
+                                                     domain_scale_function=pix_scale_function)
     # Obtain the Slit Shear of each order
     SlitShearFuncDic = Get_SlitShearFunction(ApertureCenters)
 
