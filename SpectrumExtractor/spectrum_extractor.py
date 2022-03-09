@@ -1262,5 +1262,10 @@ def main(raw_args=None):
                               BkgFluxSpectrumList=BkgFluxSpectrumList, BkgFluxVarSpectrumList=BkgFluxVarSpectrumList)
     logging.info('Extracted {0} => {1} output file'.format(SpectrumFile,OutputFile))
 
+    if Config['ReFitApertureInXD']:
+        return OutputFile, Avg_XD_shift, PixDomain
+    else:
+        return OutputFile
+
 if __name__ == '__main__':
-    main()
+    _ = main()
