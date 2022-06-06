@@ -16,11 +16,15 @@ from scipy import ndimage, signal
 import scipy.interpolate as interp
 import scipy.optimize as optimize
 import pickle
-from ccdproc import cosmicray_lacosmic
 from WavelengthCalibrationTool.recalibrate import (ReCalibrateDispersionSolution,
                                                    scale_interval_m1top1,
                                                    calculate_pixshift_with_phase_cross_correlation)
 from WavelengthCalibrationTool.utils import calculate_cov_matrix_fromscipylsq
+
+try:
+    from ccdproc import cosmicray_lacosmic
+except ImportError:
+    logging.warning('Failed to import ccdproc module for cosmicray_lacosmic. DoCosmicRayClean option will not work without that.')
 
 try:
     from RVEstimator.interpolators import BandLimited2DInterpolator

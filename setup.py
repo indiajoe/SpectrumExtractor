@@ -28,11 +28,11 @@ setup(name='SpectrumExtractor',
           'scikit-image',
           'matplotlib',
           'scipy',
-          'ccdproc',
           'WavelengthCalibrationTool @ git+https://github.com/indiajoe/WavelengthCalibrationTool.git@master'
       ],
       extras_require={
-          'Rectification':['RVEstimator']
+          'Rectification':['RVEstimator'],
+          'cosmicray':['ccdproc']
           },
       include_package_data=True,
       zip_safe=False)
