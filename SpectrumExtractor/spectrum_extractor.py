@@ -446,8 +446,12 @@ def Get_ApertureTraceFunction(ApertureCenters,deg=4,return_coeff=False,domain_sc
     ApertureTraceFuncDic = {}
     ApertureTraceCoeffDic = {}
     for aper in ApertureCenters:
-        weights = 1/ApertureCenters[aper][2,:]
-        weights[~np.isfinite(weights)] = 0
+        try:
+            weights = 1/ApertureCenters[aper][2,:]
+        except IndexError:  # No weights provided
+            weights = None # Ignore to support legacy files
+        else:
+            weights[~np.isfinite(weights)] = 0
         # fit Chebyshev polynomial to the data to obtain cheb coeffs
         cc = np.polynomial.chebyshev.chebfit(domain_scale_function(ApertureCenters[aper][0,:]),
                                              ApertureCenters[aper][1,:], deg,
