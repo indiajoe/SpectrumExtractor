@@ -961,7 +961,10 @@ def create_configdict_from_file(configFilename,listOfConfigSections=None,flatten
     configLoader = ConfigParser.ConfigParser()
     configLoader.optionxform = str  # preserve the Case sensitivity of keys
     with open(configFilename) as cfgFile:
-        configLoader.read_file(cfgFile)
+        try:
+            configLoader.read_file(cfgFile)
+        except AttributeError: # python 2 environment doesnot have .rad_file attribute
+            configLoader.readfp(cfgFile)
 
     # Create a Config Dictionary
     config = {}
