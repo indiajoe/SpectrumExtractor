@@ -471,6 +471,31 @@ def Get_ApertureTraceFunction(ApertureCenters,deg=4,return_coeff=False,domain_sc
     else:
         return ApertureTraceFuncDic
 
+def get_aperture_trace_function_fromChebcoeff(ApertureCentersCoeff,domain_scale_function=None):
+    """ Returns dictionary of aperture trace functions 
+        based on the polynomial coeffs in ApertureCenters """
+    ApertureTraceFuncDic = {}
+    for aper in ApertureCentersCoeff:
+        # Use chebyshev polynomimal with domain scaling
+        ApertureTraceFuncDic[aper] = partial(function_eval_afterdomainscaling,
+                                             func=np.polynomial.chebyshev.chebval,
+                                             domain_scale_function=domain_scale_function,
+                                             c=ApertureCentersCoeff[aper])
+    return ApertureTraceFuncDic
+
+
+
+def get_aperture_trace_function_fromcoeff(ApertureCentersCoeff):
+    """ Returns dictionary of aperture trace functions 
+        based on the polynomial coeffs in ApertureCenters """
+    ApertureTraceFuncDic = {}
+    for aper in ApertureCentersCoeff:
+        # currently use the standard polynomial
+        ApertureTraceFuncDic[aper] = partial(np.polynomial.polynomial.polyval, c= ApertureCentersCoeff[aper]) 
+
+    return ApertureTraceFuncDic
+######################################################
+
 def Get_SlitShearFunction(ApertureCenters):
     """ Returns dictionary of the Dispersion direction shear coefficent for the slit """
     ApertureSlitShearFuncDic = {}
@@ -756,7 +781,7 @@ def SumCurvedApertures(SpectrumFile, ApertureTraceFuncDic, apwindow=(None,None),
     return ApertureSumDic
 
 
-def FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,VarianceArrayStrip,TopEdgeCoord,BottomEdgeCoord,CRsigma=0):
+def FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,VarianceArrayStrip,TopEdgeCoord,BottomEdgeCoord,CRsigma=0,maxCRiter=7,do_non_optimal=False,verbose=True,logprefix=''):
     """ Returns flat-relative optimal extracted values from the aperture window on top of ImageArrayStrip, where the window is defined by the TopEdgeCoord, BottomEdgeCoord.
         Only full pixels which fall completely inside the aperture window is used
         Ref: https://arxiv.org/pdf/1311.5263.pdf, Equation 7 and 9
@@ -770,7 +795,18 @@ def FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,V
                       This array defines the bottom edge subpixel coordinate of the mask.
                       Note:  TopEdgeCoord - BottomEdgeCoord should be > 1. i.e., The aperture window should be larger than a pixel
         CRsigma : float (default: 0)
-                      If CRsigma > 0, then cosmic ray rejection is done using the CRsigma as threshold
+                      If CRsigma > 0, then cosmic ray rejection is done using the CRsigma as threshold parmeter.
+                      Note: The sufix sigma is a misnomer to this term. It doesnot represent stdev.
+                      Recommended value is CRsigma = 1.4
+        maxCRiter: int (default: 7)
+                      Maximum number of iterations to do to identify CR hits.
+        do_non_optimal: True/False (default: False)
+                      Do a non optimal extraction where instead of weighting by the varicane of the data, use the flat for relative weighting.
+                      This is equivalent to sum extraction of flux divided by sum extracted flat with the benefits of CR rejection.
+                      This is useful for avoiding S/N dependent extraction artefacts on circular fibers
+        logprefix: str (default : '')
+                      Optional prefix to add to logs
+
     OUTPUTS:
         FlatRelativeFlux : Numpy 1D array, which contains the flat relative flux inside the pixel aperture along each column of ImageArrayStrip
         VarFlatRelativeFlux : Numpy 1D array, which contains the variance of the flat relative flux inside the pixel aperture along each column of ImageArrayStrip
@@ -778,34 +814,69 @@ def FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,V
 
     if np.any((TopEdgeCoord - BottomEdgeCoord) < 1):
         raise ValueError('TopEdgeCoord - BottomEdgeCoord should be > 1. i.e., The aperture window should be larger than a pixel')
+    if (CRsigma > 0): # if CR hit is being detected and masked, preserve the original input varance from getting modified
+        VarianceArrayStrip = np.copy(VarianceArrayStrip)
 
     # To sum up all the pixels fully inside the aperture, create a mask
     Igrid,Jgrid = np.mgrid[0:ImageArrayStrip.shape[0],0:ImageArrayStrip.shape[1]]
     FullyInsidePixelMask = (Igrid >= np.int_(BottomEdgeCoord)+1 ) & (Igrid <= np.int_(TopEdgeCoord)-1 )
 
+    # Calculate the FS and FF terms
     wFS = FlatArrayStrip*ImageArrayStrip/VarianceArrayStrip
     wFF = FlatArrayStrip*FlatArrayStrip/VarianceArrayStrip
 
-    FullyInsidePixelSum_wFS = np.ma.sum(np.ma.array(wFS,mask=~FullyInsidePixelMask),axis=0).data
-    FullyInsidePixelSum_wFF = np.ma.sum(np.ma.array(wFF,mask=~FullyInsidePixelMask),axis=0).data
+    for it in range(maxCRiter):
+        FinitePixelMask = np.isfinite(ImageArrayStrip) & np.isfinite(VarianceArrayStrip) & np.isfinite(FlatArrayStrip)
 
-    FlatRelativeFlux = FullyInsidePixelSum_wFS/FullyInsidePixelSum_wFF
-    VarFlatRelativeFlux = 1./np.ma.sum(np.ma.array(wFF,mask=~FullyInsidePixelMask),axis=0).data
+        FullyInsidePixelSum_wFS = np.ma.filled(np.ma.sum(np.ma.array(wFS,mask=~(FullyInsidePixelMask & FinitePixelMask)),axis=0),fill_value=np.nan)
+        FullyInsidePixelSum_wFF = np.ma.filled(np.ma.sum(np.ma.array(wFF,mask=~(FullyInsidePixelMask & FinitePixelMask)),axis=0),fill_value=np.nan)
 
-    if CRsigma > 0:
-        FluxMinusModel =  ImageArrayStrip - FlatArrayStrip * FlatRelativeFlux[np.newaxis,:]
-        FluxMinusModel_Var = VarianceArrayStrip - FlatArrayStrip*FlatArrayStrip * VarFlatRelativeFlux[np.newaxis,:]
-        CRpixelMask = FluxMinusModel > (CRsigma * FluxMinusModel_Var)
-        logging.info('Number of CR pixels rejected: {0}'.format(np.sum(CRpixelMask & FullyInsidePixelMask)))
-        NewVarianceArrayStrip = np.copy(VarianceArrayStrip)
-        NewVarianceArrayStrip[CRpixelMask & FullyInsidePixelMask] = np.inf
-        FlatRelativeFlux, VarFlatRelativeFlux = FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,FlatArrayStrip,
-                                                                                            NewVarianceArrayStrip,TopEdgeCoord,
-                                                                                            BottomEdgeCoord,CRsigma=0)
-    return FlatRelativeFlux, VarFlatRelativeFlux
+        FlatRelativeFlux = FullyInsidePixelSum_wFS/FullyInsidePixelSum_wFF
+        VarFlatRelativeFlux = 1./FullyInsidePixelSum_wFF
+
+        if CRsigma > 0:
+            FluxMinusModel =  ImageArrayStrip - FlatArrayStrip * FlatRelativeFlux[np.newaxis,:]
+            FluxMinusModel_Var = VarianceArrayStrip - FlatArrayStrip*FlatArrayStrip * VarFlatRelativeFlux[np.newaxis,:]
+            # Model / std image
+            FluxModelbystdev = FluxMinusModel / np.sqrt(FluxMinusModel_Var)
+            # Identify the regions of CR hts by 2d technique
+            CRpixelMask = threshold_in_laplace_space(FluxModelbystdev,thresh=CRsigma,pixelMask=FullyInsidePixelMask,
+                                                     TopEdgeCoord=TopEdgeCoord,BottomEdgeCoord=BottomEdgeCoord)
+            # Following lines are needed only if the above step is not sufficent
+            # struct2 = ndimage.generate_binary_structure(2, 2) # Dilate and fill holes in the CR region
+            # CRregion = ndimage.binary_fill_holes(ndimage.binary_dilation(CRregion,structure=struct2,mask=FullyInsidePixelMask))
+            # # Find the real CR hit pixels inside the CR regions
+            # CRpixelMask = CRregion & (FluxModelbystdev>CRsigma)
+
+            NewCRmask = FullyInsidePixelMask & FinitePixelMask & CRpixelMask
+            if verbose:
+                logging.info(logprefix+'Number of CR pixels to be rejected in iteration {0}: {1}'.format(it,np.sum(NewCRmask)))
+            if np.any(NewCRmask): # Detected CR hits
+                VarianceArrayStrip[NewCRmask] = -np.inf
+            else:
+                logging.info(logprefix+'Total number of CR pixels rejected after final iteration {0}: {1}'.format(it,np.sum(np.isneginf(VarianceArrayStrip) & FullyInsidePixelMask)))
+                CRmask = np.isneginf(VarianceArrayStrip) & FullyInsidePixelMask  # Change this to np.isinf to preserve +infinite variance pixels also
+                break # Skip rest of the for loop
+        else:
+            # No CR correction beign done
+            CRmask = None
+            break # Escape and exit the for loop
+    else:
+        # for loop exited without converging on all the CR hit pixels
+        logging.warning(logprefix+'Max number of CR hit removal iteration reached ({0}). Incomplete CR hit masking : {1}'.format(it,np.sum(np.isneginf(VarianceArrayStrip) & FullyInsidePixelMask)))
+        CRmask = np.isneginf(VarianceArrayStrip) & FullyInsidePixelMask
+
+    if do_non_optimal:
+        # Recalculate the FlatRelativeFlux in a non-optimal way
+        NonOptimalFullyInsidePixelSum_wFS = np.ma.filled(np.ma.sum(np.ma.array(ImageArrayStrip,mask=~(FullyInsidePixelMask & FinitePixelMask)),axis=0),fill_value=np.nan)
+        NonOptimalFullyInsidePixelSum_wFF = np.ma.filled(np.ma.sum(np.ma.array(FlatArrayStrip,mask=~(FullyInsidePixelMask & FinitePixelMask)),axis=0),fill_value=np.nan)
+        FlatRelativeFlux = NonOptimalFullyInsidePixelSum_wFS/NonOptimalFullyInsidePixelSum_wFF
+        VarFlatRelativeFlux = np.ma.filled(np.ma.sum(np.ma.array(VarianceArrayStrip,mask=~(FullyInsidePixelMask & FinitePixelMask)),axis=0),fill_value=np.nan)/np.power(NonOptimalFullyInsidePixelSum_wFF,2)
+
+    return FlatRelativeFlux, VarFlatRelativeFlux, CRmask
 
 def FlatRelativeOptimatExtraction(SpectrumFile, FlatFile, ApertureTraceFuncDic, VarianceImage=None,
-                                  apwindow=(None,None), CRsigma=0, apertures=None, dispersion_Xaxis=True, ShowPlot=False):
+                                  apwindow=(None,None), CRsigma=0, do_non_optimal=False, apertures=None, dispersion_Xaxis=True, ShowPlot=False,verbose=True,logprefix=''):
     """ Returns the flat-relative optimal extrcation from unrectified curved aperture using pixels which are fully inside the apwindow.
         Ref: https://arxiv.org/pdf/1311.5263.pdf
     Input:
@@ -816,10 +887,32 @@ def FlatRelativeOptimatExtraction(SpectrumFile, FlatFile, ApertureTraceFuncDic, 
       apwindow: The aperture window to use for extraction. Only pixels which are fully inside are used.
       CRsigma : float (default: 0)
                 If CRsigma > 0, then cosmic ray rejection is done using the CRsigma as threshold
+      do_non_optimal: True/False (default: False)
+                      Do a non optimal extraction where instead of weighting by the varicane of the data, use the flat for relative weighting.
+                      This is equivalent to sum extraction of flux divided by sum extracted flat with the benefits of CR rejection.
+                      This is useful for avoiding S/N dependent extraction artefacts on circular fibers
+     Returns:
+       ApertureSumDic, ApertureVarDic, CRimage
     """
     # Load from fits files if they are strings
-    ImageArray = fits.getdata(SpectrumFile) if isinstance(SpectrumFile,str) else SpectrumFile
-    FlatArray = fits.getdata(FlatFile) if isinstance(FlatFile,str) else FlatFile
+    if isinstance(SpectrumFile,str):
+        ImageArray = fits.getdata(SpectrumFile)
+    elif isinstance(SpectrumFile,fits.HDUList):
+        ImageArray = SpectrumFile[0].data
+    elif isinstance(SpectrumFile,np.ndarray):
+        ImageArray = SpectrumFile
+    else:
+        raise ValueError('Input SpectrumFile in unknown format')
+
+    if isinstance(FlatFile,str):
+        FlatArray = fits.getdata(FlatFile)
+    elif isinstance(FlatFile,fits.HDUList):
+        FlatArray = FlatFile[0].data
+    elif isinstance(FlatFile,np.ndarray):
+        FlatArray = FlatFile
+    else:
+        raise ValueError('Input FlatFile in unknown format')
+
     # If VarianceImage is not provided assume poission noise
     VarianceArray = VarianceImage if (VarianceImage is not None) else np.copy(SpectrumFile)
 
@@ -829,6 +922,10 @@ def FlatRelativeOptimatExtraction(SpectrumFile, FlatFile, ApertureTraceFuncDic, 
         FlatArray = FlatArray.T
         VarianceArray = VarianceArray.T
 
+    if CRsigma > 0:
+        CRimage = np.zeros(ImageArray.shape,dtype=np.bool)
+    else:
+        CRimage = None
     if apertures is None :
         apertures = ApertureTraceFuncDic.keys()
 
@@ -854,20 +951,30 @@ def FlatRelativeOptimatExtraction(SpectrumFile, FlatFile, ApertureTraceFuncDic, 
         TopEdgeCoord = XDCoordsCenterStrip + apwindow[1]
         BottomEdgeCoord = XDCoordsCenterStrip + apwindow[0]
         # Sum the flux inside the sub-pixel aperture window
-        ApertureSumDic[aper], ApertureVarDic[aper] = FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,
-                                                                                                 FlatArrayStrip,
-                                                                                                 VarianceArrayStrip,
-                                                                                                 TopEdgeCoord,
-                                                                                                 BottomEdgeCoord,
-                                                                                                 CRsigma=CRsigma)
+        ApertureSumDic[aper], ApertureVarDic[aper], CRmask = FlatRelativeOptimatExtractionAperturewindow(ImageArrayStrip,
+                                                                                                         FlatArrayStrip,
+                                                                                                         VarianceArrayStrip,
+                                                                                                         TopEdgeCoord,
+                                                                                                         BottomEdgeCoord,
+                                                                                                         CRsigma=CRsigma,
+                                                                                                         do_non_optimal=do_non_optimal,
+                                                                                                         verbose=verbose,
+                                                                                                         logprefix=logprefix+'O '+str(aper)+' ')
+        if CRmask is not None:
+            CRimage[StripStart:StripEnd,:] |= CRmask
+
     if ShowPlot:
         plt.plot(ApertureSumDic[aper])
         plt.ylabel('Sum of Counts')
         plt.xlabel('pixels')
         plt.title('Aperture : {0}'.format(aper))
         plt.show()
+        if CRmask is not None:
+            plt.imshow(CRimage)
+            plt.title('Masked CR hit pixels')
+            plt.show()
 
-    return ApertureSumDic, ApertureVarDic
+    return ApertureSumDic, ApertureVarDic, CRimage
 
 
 def fix_badpixels(SpectrumImage,BPMask,replace_with_nan=False):
@@ -898,6 +1005,56 @@ def fix_badpixels(SpectrumImage,BPMask,replace_with_nan=False):
     return SpectrumImage
 
 
+##########################################################################
+
+def add_extracted_spectra_dicts(list_of_extrated_spectra_dicts):
+    """ Returns the summed output of the list of extracted spectra
+    Input:
+        list_of_extrated_spectra_dicts: (list of dict)
+                List of the extracted spectra dictionaries
+    Returns:
+        output_sum_spectrum
+          sum of the input spectra
+    """
+    output_sum_spectrum = {}
+    for spectrumDict in list_of_extrated_spectra_dicts:
+        # Loop through the orders to sum
+        for i in sorted(spectrumDict.keys()):
+            try:
+                output_sum_spectrum[i] += spectrumDict[i]
+            except KeyError:
+                output_sum_spectrum[i] = spectrumDict[i].copy()
+
+    return output_sum_spectrum
+
+def add_scaled_variance_to_variance_dictlist(inputVariance_list,varianceToAdd_list,scaling_list=None):
+    """ Returns the new list of variance dictionary after adding the  varianceToAdd_list/scaling_list**2 to inputVariance_list
+    Input:
+         inputVariance_list : (list of dict)
+                List of the flat relative extracted spectra's varaince
+         varianceToAdd_list : (list of dict)
+                List of extra variance to add
+         scaling_list : (list of dict)
+                List of the flat's continuum model to scale
+
+    Returns:
+         outputVariance_list : (list of dict)
+                Returns inputVariance_list + varianceToAdd_list/scaling_list**2
+    """
+    outputVariance_list = []
+    for spectrum_varDict, spectrum_varDict2, continuum_spectrumDict in zip(inputVariance_list,
+                                                                           varianceToAdd_list,
+                                                                           scaling_list):
+        # Loop through the orders to multiply
+        ApVarianceDict = {}
+        for i in sorted(spectrum_varDict.keys()):
+            ApVarianceDict[i] = spectrum_varDict[i] + spectrum_varDict2[i]/np.power(continuum_spectrumDict[i],2)
+        outputVariance_list.append(ApVarianceDict)
+
+    return outputVariance_list
+
+##########################################################################
+
 def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, VarianceSpectrumDic=None, fitsheader=None,
                           BkgFluxSpectrumList=(), BkgFluxVarSpectrumList=()):
     """ Writes the FluxSpectrumDic into fits image with filename outfilename
@@ -921,6 +1078,51 @@ def WriteFitsFileSpectrum(FluxSpectrumDic, outfilename, VarianceSpectrumDic=None
 
     hdulist.writeto(outfilename)
     return outfilename
+
+
+####################################################################################
+
+def write_crmask(crmask,fname=None,outputDirectory=None,fitsheader=None):
+    """ Save the boolean crmask fits file.
+    If the file already exists, it will be combined with the new mask by OR operation.
+    Output filename will be generated  in the outputDirectory
+    """
+    if fname is None:
+        # Load the existing file name form header
+        fname = fitsheader['FILENAME']
+    try:
+        outputmask = fits.getdata(os.path.join(outputDirectory,fname)).astype(np.bool) | crmask
+    except IOError:
+        outputmask = crmask
+
+    fits.PrimaryHDU(data=outputmask.astype(np.uint8),header=fitsheader).writeto(os.path.join(outputDirectory,fname),overwrite=True)
+
+    return os.path.join(outputDirectory,fname)
+
+def write_2dimage_fitsfile(image_dict,fname=None,outputDirectory=None,fitsheader=None,fname_prefix='ScatterModel',append=True):
+    """ Save the images in the input image_dict as a multiextension fits file with the name fname.
+    Output filename will be generated in the outputDirectory.
+    if append is True and output file already exists then it will append to an existing file.
+    """
+
+    if fname is None:
+        # Load the existing the L1 file
+        fname = fitsheader['FILENAME']
+
+    if append:
+        try:
+            outhdulist = fits.open(os.path.join(outputDirectory,fname))
+        except IOError:
+            outhdulist = fits.HDUList([fits.PrimaryHDU(header=fitsheader)])
+    else:
+        outhdulist = fits.HDUList([fits.PrimaryHDU(header=fitsheader)])
+
+    for extname in image_dict:
+        outhdulist.append(fits.ImageHDU(image_dict[extname].astype(np.float32),name=extname))
+
+    outhdulist.writeto(os.path.join(outputDirectory,fname),overwrite=True)
+
+    return os.path.join(outputDirectory,fname)
 
 #######################################################################################
 def parse_str_to_types(string):
@@ -1004,14 +1206,22 @@ def parse_args(raw_args=None):
                         help="Normalized Flat file to be used for correcting pixel to pixel variation")
     parser.add_argument('--BadPixMask', type=str, default=None,
                         help="Bad Pixel Mask file to be used for fixing bad pixels")
+    parser.add_argument('--ApertureTraceFilename', type=str, default=None,
+                        help="Aperture trace file to be used for aperture extraction")
     parser.add_argument('--ContinuumFile', type=str, default=None,
                         help="Continuum flat source to be used for aperture extraction")
     parser.add_argument('--ApertureLabel', type=str, default=None,
                         help="Array of labels for the aperture trace regions")
+    parser.add_argument('--ExtractionMethod', type=str, default=None,
+                        help="Extraction method to use : Sum, FlatRelativeOptimal")
+    parser.add_argument('--Do_non_optimal', type=str, default=None,
+                        help="True/False Whether to do non optimal extraction while doing FlatRelativeOptimal extraction. Useful for non rectangular fibers.")
     parser.add_argument('--VarianceExt', type=int, default=None,
                         help="Provide extension of Variance array if needs to be extracted")
     parser.add_argument('OutputFile', type=str,
                         help="Output filename to write extracted spectrum")
+    parser.add_argument('--SaveCRmaskDirectory', type=str,default=None,
+                        help="Optional directory path to save the Cosmic Ray Mask created during the extraction")
     parser.add_argument('--logfile', type=str, default=None,
                         help="Log Filename to write logs during the run")
     parser.add_argument("--loglevel", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
@@ -1043,7 +1253,10 @@ def main(raw_args=None):
     SpectrumFile = args.SpectrumFile
     OutputFile = args.OutputFile
 
+    logprefix = os.path.basename(SpectrumFile)+':'
     # Override the Config file with command line arguments
+    if args.ApertureTraceFilename is not None:
+        Config['ApertureTraceFilename'] = args.ApertureTraceFilename
     if args.ContinuumFile is not None:
         Config['ContinuumFile'] = args.ContinuumFile
     if args.FlatNFile is not None:
@@ -1054,6 +1267,12 @@ def main(raw_args=None):
         Config['ApertureLabel'] = args.ApertureLabel
     if args.VarianceExt is not None:
         Config['VarianceExt'] = args.VarianceExt
+    if args.ExtractionMethod is not None:
+        Config['ExtractionMethod'] = args.ExtractionMethod
+    if args.SaveCRmaskDirectory is not None:
+        Config['SaveCRmaskDirectory'] = args.SaveCRmaskDirectory
+    if args.Do_non_optimal is not None:
+        Config['Do_non_optimal'] = parse_str_to_types(args.Do_non_optimal)
 
     if os.path.isfile(OutputFile):
         logging.warning('WARNING: Output file {0} already exist'.format(OutputFile))
@@ -1075,7 +1294,10 @@ def main(raw_args=None):
         ApertureTraceFilename = Config['ContinuumFile']+'_trace.pkl'
     if os.path.isfile(ApertureTraceFilename):  # Save time and load a pre-existing aperture trace
         logging.info('Loading existing trace coordinates {0}'.format(ApertureTraceFilename))
-        ApertureCenters = pickle.load(open(ApertureTraceFilename,'rb'))
+        try:
+            ApertureCenters = pickle.load(open(ApertureTraceFilename,'rb'))
+        except UnicodeDecodeError: # Support for old python2 .pkl trace file
+            ApertureCenters = pickle.load(open(ApertureTraceFilename,'rb'),encoding='latin1')
     else:
         # First Load/Create the Aperture Label file to label and extract trace from continuum file
         ###########
@@ -1134,7 +1356,8 @@ def main(raw_args=None):
         fheader['BPMASK'] = (os.path.basename(Config['BadPixMask']), 'Bad Pixel Mask File')
         fheader['HISTORY'] = 'Fixed the bad pixels in the image'
         if Config['VarianceExt'] is not None:
-            pass  # In future update the VarianceImage to reflect the fixing of bad pixels
+            #update the VarianceImage to reflect the fixing of bad pixels
+            VarianceImage[BPMask == 0] = np.inf
 
     # Also use cosmic_lacomic to fix any spiky CR hits in data
     if Config['DoCosmicRayClean']:
@@ -1148,6 +1371,8 @@ def main(raw_args=None):
         fheader['HISTORY'] = 'Fixed the CosmicRays using LACosmic'
         if Config['VarianceExt'] is not None:
             pass  # In future update the VarianceImage to reflect the fixing of cosmic rays
+    else:
+        cmask = None
 
     ################################################################################
     # Create the final aperture trace function for the image to be extracted
@@ -1230,12 +1455,20 @@ def main(raw_args=None):
 
         elif Config['ExtractionMethod'] == 'FlatRelativeOptimal':
             # estimate the flux in XD direction of slit relative to flat
-            SumApFluxSpectrum, SumApVariance = FlatRelativeOptimatExtraction(SpectrumImage, Config['ContinuumFile'],ApertureTraceFuncDic,
-                                                                             VarianceImage=VarianceImage,
-                                                                             apwindow=Config['ApertureWindow'],
-                                                                             dispersion_Xaxis=Config['dispersion_Xaxis'],
-                                                                             CRsigma=Config['OptimalExt_CRsigma'],
-                                                                             ShowPlot=False)
+            SumApFluxSpectrum, SumApVariance, CRimg = FlatRelativeOptimatExtraction(SpectrumImage, 
+                                                                                    Config['ContinuumFile'],
+                                                                                    ApertureTraceFuncDic,
+                                                                                    VarianceImage=VarianceImage,
+                                                                                    apwindow=Config['ApertureWindow'],
+                                                                                    dispersion_Xaxis=Config['dispersion_Xaxis'],
+                                                                                    CRsigma=Config['OptimalExt_CRsigma'],
+                                                                                    do_non_optimal=Config['Do_non_optimal'],
+                                                                                    ShowPlot=False,
+                                                                                    verbose=False,
+                                                                                    logprefix=logprefix+':')
+            if CRimg is not None:
+                cmask = (cmask | CRimg) if cmask is not None else CRimg
+
         else:
             raise NotImplementedError('Unknown Extraction method {0}'.format(Config['ExtractionMethod']))
 
@@ -1271,11 +1504,18 @@ def main(raw_args=None):
     fheader['RECTMETH'] = (str(Config['RectificationMethod']), 'Rectification method used')
     fheader['EXTRMETH'] = (str(Config['ExtractionMethod']), 'Extraction method used')
     fheader['APERTURE'] = (str(Config['ApertureWindow']), 'Aperture window used for extraction')
+    if Config['ExtractionMethod'] == 'FlatRelativeOptimal':
+        fheader['NONOPTIM'] = (str(Config['Do_non_optimal']), 'T/F NonOptimal extraction was done')
+
     fheader['HISTORY'] = 'Extracted spectrum to 1D'
     if Config['VarianceExt'] is None:
         SumApVariance = None
     _ = WriteFitsFileSpectrum(SumApFluxSpectrum, OutputFile, VarianceSpectrumDic=SumApVariance, fitsheader=fheader,
                               BkgFluxSpectrumList=BkgFluxSpectrumList, BkgFluxVarSpectrumList=BkgFluxVarSpectrumList)
+    # Save diagnostic frames
+    if (cmask is not None) and (Config['SaveCRmaskDirectory'] is not None):
+        _ = write_crmask(cmask,fname=SpectrumFile+'_CRmask.fits',outputDirectory=Config['SaveCRmaskDirectory'],fitsheader=fheader)
+
     logging.info('Extracted {0} => {1} output file'.format(SpectrumFile,OutputFile))
 
     if Config['ReFitApertureInXD']:
