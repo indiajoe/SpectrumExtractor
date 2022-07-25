@@ -16,6 +16,8 @@ from scipy import ndimage, signal
 import scipy.interpolate as interp
 import scipy.optimize as optimize
 import pickle
+from .cosmic_ray_utils import threshold_in_laplace_space
+
 from WavelengthCalibrationTool.recalibrate import (ReCalibrateDispersionSolution,
                                                    scale_interval_m1top1,
                                                    calculate_pixshift_with_phase_cross_correlation)
