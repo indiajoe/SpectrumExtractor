@@ -399,7 +399,9 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
                                      np.repeat(dpix[:,np.newaxis],xdapL2Upix.shape[1],axis=1))]
         weights_foravg = np.sum(Rectifiedarray,axis=1)
         weights_foravg = np.clip(weights_foravg,0,np.percentile(weights_foravg,98))  # remove -ve weights and clip 2 percentile max points
-        mean_profile = np.average(Rectifiedarray,axis=0,weights=weights_foravg)  # weighted propotional to flux level
+        weights_foravg[~np.isfinite(weights_foravg)] = 0 # Set any non finite pixel weights to 0
+        masked_Rectifiedarray = np.ma.array(Rectifiedarray,mask=~np.isfinite(Rectifiedarray)) # Mask out any non finite pixels
+        mean_profile = np.ma.average(masked_Rectifiedarray,axis=0,weights=weights_foravg)  # weighted propotional to flux level
         # PSF interpolated function
         psf = interp.InterpolatedUnivariateSpline(np.arange(apwindow[0],apwindow[1]+1), mean_profile)
 
@@ -409,11 +411,12 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
         CenterXDcooErr = []
         ampl = 1
         for d,xd,flux in zip(dpix,xdapL2Upix,Rectifiedarray):
+            m = np.isfinite(flux) # good pixel mask
             # initial estimate
             p0 = [ampl,xd[len(xd)//2]]
             fitoutput = optimize.least_squares(errorfuncProfileFit, p0,
                                                bounds=([0,np.min(xd)],[np.inf,np.max(xd)]),
-                                               args=(psf,xd,flux))
+                                               args=(psf,xd[m],flux[m]))
             p = fitoutput.x
             pcov = calculate_cov_matrix_fromscipylsq(fitoutput,absolute_sigma=False)
             # p,ier = optimize.leastsq(errorfuncProfileFit, p0, args=(psf,xd,flux))
