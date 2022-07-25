@@ -1,11 +1,12 @@
-from setuptools import setup
+#from setuptools import setup
+from numpy.distutils.core import setup, Extension
 
 def readme():
     with open('README.md') as f:
         return f.read()
 
 setup(name='SpectrumExtractor',
-      version='0.2',
+      version='0.3',
       description='Python Tool for extracting 1D spectrum from 2D image',
       long_description = readme(),
       classifiers=[
@@ -35,4 +36,5 @@ setup(name='SpectrumExtractor',
           'cosmicray':['ccdproc']
           },
       include_package_data=True,
-      zip_safe=False)
+      zip_safe=False,
+      ext_modules = [Extension('SpectrumExtractor.laplace_filter', ['SpectrumExtractor/laplace_filter.f95'])])
