@@ -190,7 +190,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
         if not dispersion_Xaxis:
             ContinuumFile = ContinuumFile.T
     if BadPixMask is not None:
-        BPMask = np.load(BadPixMask) # fits.getdata(Config['BadPixMask'])
+        BPMask = fits.getdata(BadPixMask) if BadPixMask[-5:] == '.fits' else np.load(BadPixMask)
         if not dispersion_Xaxis:
             BPMask = BPMask.T
 
