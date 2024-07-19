@@ -518,7 +518,7 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0', DWindowT
         SpectrumImage = SpectrumImage.T
         RefImage = RefImage.T
 
-    ApodizingWindow = scipy.signal.hamming(StripWidth)  # We use HAmming window to apodise the edges of each stripe
+    ApodizingWindow = scipy.signal.windows.hamming(StripWidth)  # We use HAmming window to apodise the edges of each stripe
 
     if DWindowToUse is None:
         DWindowToUse = (1,-1)
