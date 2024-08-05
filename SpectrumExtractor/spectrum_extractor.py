@@ -671,7 +671,7 @@ def LagrangeInterpolateArray(newX,X,Y):
         xmX_jmi = np.delete(xmX_j,i,axis=0)  # x-X_j without i=j
         X_imX_j = X[i] - np.delete(X,i,axis=0)
         xmX_jmi_by_X_imX_j = np.true_divide(xmX_jmi,X_imX_j)
-        Pij = np.product(xmX_jmi_by_X_imX_j,axis=0)
+        Pij = np.prod(xmX_jmi_by_X_imX_j,axis=0)
         TermsList.append(Pij*Y[i])
     return np.sum(TermsList,axis=0)
 
