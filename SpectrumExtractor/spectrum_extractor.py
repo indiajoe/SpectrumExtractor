@@ -8,6 +8,7 @@ import numpy as np
 import re
 from astropy.io import fits
 from astropy.stats import mad_std, biweight_location
+from astropy.visualization import MinMaxInterval, SqrtStretch, PercentileInterval, ImageNormalize
 import matplotlib.pyplot as plt
 from skimage import filters
 from skimage import morphology
@@ -1406,7 +1407,29 @@ def main(raw_args=None):
     # Obtain the Slit Shear of each order
     SlitShearFuncDic = Get_SlitShearFunction(ApertureCenters)
 
-
+    if Config['ShowPlot_Trace']:
+        norm = ImageNormalize(SpectrumImage, interval=PercentileInterval(95.),
+                              stretch=SqrtStretch())
+        fig = plt.figure()
+        ax = fig.add_subplot(1, 1, 1)
+        if Config['dispersion_Xaxis']:
+            im = ax.imshow(SpectrumImage, origin='lower', norm=norm, cmap='gray')
+        else:
+            im = ax.imshow(SpectrumImage.T, origin='lower', norm=norm, cmap='gray')
+        fig.colorbar(im)
+        for order in ApertureTraceFuncDic:
+            x = np.arange(SpectrumImage.shape[0])
+            # Plot the center of the trace
+            ax.plot(x,ApertureTraceFuncDic[order](x),ls=':',color='r')
+            # Plot the Extraction aperture window
+            ax.plot(x,ApertureTraceFuncDic[order](x)+Config['ApertureWindow'][0],color='cyan')
+            ax.plot(x,ApertureTraceFuncDic[order](x)+Config['ApertureWindow'][1],color='cyan')
+            if Config['BkgWindows'] is not None:
+                # Plot the Bkg window
+                for bkgw_offset in np.array(Config['BkgWindows']).flatten():
+                    ax.plot(x,ApertureTraceFuncDic[order](x)+bkgw_offset,ls='--',color='blue')
+        ax.set_title('Fitted Aperture: Star in Cyan & Bkg in Blue')
+        plt.show()
     ################################################################################
     # Spectral Extraction starts here
     ################################################################################
