@@ -546,7 +546,7 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0', DWindowT
         if int(XDshiftmodel[1:]) == 1:
             guess_params.extend([1])
         elif int(XDshiftmodel[1:]) > 1:
-            guess_params.extend([0]*(int(XDshiftmodel[1:])-1))
+            guess_params.extend([1]+[0]*(int(XDshiftmodel[1:])-1))
 
         try:
             shifted_pixels, fitted_driftp = ReCalibrateDispersionSolution(SumApFluxSpectrum,newRefFlux,
