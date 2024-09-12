@@ -1417,18 +1417,20 @@ def main(raw_args=None):
         else:
             im = ax.imshow(SpectrumImage.T, origin='lower', norm=norm, cmap='gray')
         fig.colorbar(im)
+        ylim = ax.get_ylim()
         for order in ApertureTraceFuncDic:
             x = np.arange(SpectrumImage.shape[0])
             # Plot the center of the trace
             ax.plot(x,ApertureTraceFuncDic[order](x),ls=':',color='r')
             # Plot the Extraction aperture window
-            ax.plot(x,ApertureTraceFuncDic[order](x)+Config['ApertureWindow'][0],color='cyan')
-            ax.plot(x,ApertureTraceFuncDic[order](x)+Config['ApertureWindow'][1],color='cyan')
+            ax.plot(x,ApertureTraceFuncDic[order](x)+Config['ApertureWindow'][0],color='deeppink')
+            ax.plot(x,ApertureTraceFuncDic[order](x)+Config['ApertureWindow'][1],color='deeppink')
             if Config['BkgWindows'] is not None:
                 # Plot the Bkg window
                 for bkgw_offset in np.array(Config['BkgWindows']).flatten():
-                    ax.plot(x,ApertureTraceFuncDic[order](x)+bkgw_offset,ls='--',color='blue')
-        ax.set_title('Fitted Aperture: Star in Cyan & Bkg in Blue')
+                    ax.plot(x,ApertureTraceFuncDic[order](x)+bkgw_offset,ls='--',color='yellowgreen')
+        ax.set_title('Fitted Aperture: Star in Pink & Bkg in YellowGreen')
+        ax.set_ylim(ylim)
         plt.show()
     ################################################################################
     # Spectral Extraction starts here
