@@ -1,0 +1,49 @@
+[build-system]
+build-backend = "mesonpy"
+requires = ["meson-python", "numpy"]
+
+[project]
+
+name = "SpectrumExtractor"
+version = "0.3"
+description = "Python Tool for extracting 1D spectrum from 2D image"
+readme = "README.md"
+
+classifiers = [
+    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+    "Programming Language :: Python :: 3.6+",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+
+keywords = ["Spectrum Extraction", "Astronomy Data Reduction"]
+
+authors = [{name = "Joe Ninan", email = "indiajoe@gmail.com"}]
+maintainers = [{name = "Joe Ninan", email = "indiajoe@gmail.com"}]
+
+dependencies = [
+    "numpy",
+    "astropy",
+    "scikit-image",
+    "matplotlib",
+    "scipy",  
+
+    "WavelengthCalibrationTool @ git+https://github.com/indiajoe/WavelengthCalibrationTool.git@master",
+]
+
+[project.urls]
+Repository = "https://github.com/indiajoe/SpectrumExtractor"
+
+
+[project.optional-dependencies]
+Rectification = ["RVEstimator"]
+cosmicray = ["ccdproc"]
+
+[project.scripts]
+spectrum_extractor = "SpectrumExtractor.spectrum_extractor:main"
+
+[build.extensions]
+requires = ["numpy","f2py"]
+command = "build_ext"
+# Path to the fortran file relative to project root
+sources = ["SpectrumExtractor/laplace_filter.f95"]
+module_name = "SpectrumExtractor.laplace_filter"  # Optional, defaults to filename without extension
