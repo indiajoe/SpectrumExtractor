@@ -17,6 +17,7 @@ from scipy import ndimage, signal
 import scipy.interpolate as interp
 import scipy.optimize as optimize
 import pickle
+import ast
 from .cosmic_ray_utils import threshold_in_laplace_space
 
 from WavelengthCalibrationTool.recalibrate import (ReCalibrateDispersionSolution,
@@ -367,7 +368,7 @@ def boundvalue(x,ll,ul):
         return ul
 
 def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
-                           apwindow=(-7,+7),dispersion_Xaxis = True, ShowPlot=False):
+                       apwindow=(-7,+7),dispersion_Xaxis = True, ShowPlot=False):
     """ Fits the center of the apertures in the spectrum"""
     ApertureCenters = {}
     logging.info('Extracting Aperture Centers')
@@ -509,10 +510,11 @@ def Get_SlitShearFunction(ApertureCenters):
 
     return ApertureSlitShearFuncDic
 
-def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0', DWindowToUse=None, StripWidth=50,
+def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0',Coeffmodel='p0', DWindowToUse=None, StripWidth=50,
                        Apodize=True, bkg_medianfilt=False,dispersion_Xaxis=True,ShowPlot=False):
     """ Calculates the avg shift in XD to match SpectrumImage to RefImage
-    Returns Avg_XD_shift coeffiencts in the domain the XD pixels are scaled to -1 to 1 """
+    Returns Avg_XD_shift coeffiencts in the domain the XD pixels are scaled to -1 to 1
+    if Coeffmodel is pi, where i >0 then an i degree polynomial fit is made to the coefficents of the XDshift model acorss the dispersion pixels"""
     if isinstance(RefImage,str):
         RefImage = fits.getdata(RefImage)
     else:
@@ -528,12 +530,15 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0', DWindowT
     if DWindowToUse is None:
         DWindowToUse = (1,-1)
     NoOfXDstripes = int(SpectrumImage[:,DWindowToUse[0]:DWindowToUse[1]].shape[1]/StripWidth)
-
-    XDShiftList = []
-    for i,(XDSliceSpec,XDSliceRef) in enumerate(zip(np.split(SpectrumImage[:,DWindowToUse[0]:DWindowToUse[0]+NoOfXDstripes*StripWidth],
-                                                           NoOfXDstripes,axis=1),
-                                                  np.split(RefImage[:,DWindowToUse[0]:DWindowToUse[0]+NoOfXDstripes*StripWidth],
-                                                           NoOfXDstripes,axis=1))):
+    XDShiftCoeffDict = {}
+    Splits_SpectrumImage = np.split(SpectrumImage[:,DWindowToUse[0]:DWindowToUse[0]+NoOfXDstripes*StripWidth], NoOfXDstripes,axis=1)
+    Splits_RefImage = np.split(RefImage[:,DWindowToUse[0]:DWindowToUse[0]+NoOfXDstripes*StripWidth],NoOfXDstripes,axis=1)
+    Indices = list(range(len(Splits_SpectrumImage)))
+    # Fit starting at the center where flux will likely be maximum, after finishing to right, return and do towards the left.
+    for i in Indices[NoOfXDstripes//2:]+Indices[NoOfXDstripes//2-1::-1]:
+        XDSliceSpec = Splits_SpectrumImage[i]
+        XDSliceRef = Splits_RefImage[i]
+        centerx = DWindowToUse[0]+i*StripWidth+StripWidth//2
         SumApFluxSpectrum = np.sum(XDSliceSpec*ApodizingWindow,axis=1)
         SumApRefSpectrum = np.sum(XDSliceRef*ApodizingWindow,axis=1)
         SigmaArrayWt = np.sqrt(np.abs(SumApFluxSpectrum))
@@ -544,14 +549,18 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0', DWindowT
 
         newRefFlux = np.vstack([np.arange(len(SumApRefSpectrum)),SumApRefSpectrum]).T
         # Get a quick estimate for the pixel shift
-        guess_pshift = calculate_pixshift_with_phase_cross_correlation(SumApFluxSpectrum,SumApRefSpectrum,upsample_factor=10)
         DomainRange = (min(newRefFlux[:,0]), max(newRefFlux[:,0]))
-        guess_params = [np.percentile(SumApFluxSpectrum,98)/np.percentile(SumApRefSpectrum,98) ,guess_pshift*2./(DomainRange[1]-DomainRange[0])]
-        if int(XDshiftmodel[1:]) == 1:
-            guess_params.extend([1])
-        elif int(XDshiftmodel[1:]) > 1:
-            guess_params.extend([1]+[0]*(int(XDshiftmodel[1:])-1))
-
+        if len(XDShiftCoeffDict.keys()) == 0:
+            guess_pshift = calculate_pixshift_with_phase_cross_correlation(SumApFluxSpectrum,SumApRefSpectrum,upsample_factor=10)
+            guess_params = [np.percentile(SumApFluxSpectrum,98)/np.percentile(SumApRefSpectrum,98) ,guess_pshift*2./(DomainRange[1]-DomainRange[0])]
+            if int(XDshiftmodel[1:]) == 1:
+                guess_params.extend([1])
+            elif int(XDshiftmodel[1:]) > 1:
+                guess_params.extend([1]+[0]*(int(XDshiftmodel[1:])-1))
+        else:
+            # Find the nearest position in which the fit was made last time
+            done_positions = np.array(list(XDShiftCoeffDict.keys()))
+            guess_params = XDShiftCoeffDict[done_positions[NearestIndx(done_positions,centerx)]]
         try:
             shifted_pixels, fitted_driftp = ReCalibrateDispersionSolution(SumApFluxSpectrum,newRefFlux,
                                                                           method=XDshiftmodel,
@@ -559,16 +568,26 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0', DWindowT
                                                                           initial_guess=guess_params)
         except (RuntimeError,ValueError) as e:
             logging.warning(e)
-            logging.warning('Failed Refitting aperture at {0} D pixel position'.format(DWindowToUse[0]+i*StripWidth))
+            logging.warning('Failed Refitting aperture at {0} D pixel position'.format(DWindowToUse[0]+i*StripWidth +StripWidth//2))
         else:
             logging.debug('XD offset fit {0}:{1}'.format(i,fitted_driftp))
-            XDShiftList.append(fitted_driftp)
+            XDShiftCoeffDict[centerx] = fitted_driftp
             if ShowPlot:
+                plt.figure()
                 plt.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0],color='k',alpha=0.3)
                 plt.plot(shifted_pixels,SumApFluxSpectrum,color='g',alpha=0.3)
+                plt.show(block=False)
 
-    Avg_XD_shift = biweight_location(np.array(XDShiftList),axis=0)[1:] #remove the flux scale coeff
-
+    if int(Coeffmodel[1:]) == 0:
+        Avg_XD_shift = biweight_location(np.array(list(XDShiftCoeffDict.values())),axis=0)[1:] #remove the flux scale coeff
+    else :
+        Avg_XD_shift = []
+        Dpixelpos = sorted(list(XDShiftCoeffDict.keys()))
+        XDShiftList = [XDShiftCoeffDict[pix] for pix in Dpixelpos]
+        for j in range(1,np.array(list(XDShiftCoeffDict.values())).shape[1]): #remove the flux scale coeff
+            coeff_list = np.array(XDShiftList)[:,j]
+            c = np.polynomial.Polynomial.fit(Dpixelpos, coeff_list, int(Coeffmodel[1:]))
+            Avg_XD_shift.append(tuple(c.convert().coef))
     if ShowPlot:
         plt.title('{0}:  {1}'.format(tuple(Avg_XD_shift),tuple(DomainRange)))
         plt.xlabel('XD pixels')
@@ -581,12 +600,17 @@ def ApplyXDshiftToApertureCenters(ApertureCenters,Avg_XD_shift,PixDomain):
     """ Returns the shifted Aperture centers after applying the shift """
     ShiftedApertureCenters = {}
     for aper in ApertureCenters:
-        mean_y = np.nanmedian(ApertureCenters[aper][1,:])
-        scaled_y = scale_interval_m1top1(mean_y, a=PixDomain[0],b=PixDomain[1])
-        shifted_scaled_y = np.polynomial.polynomial.polyval(scaled_y, Avg_XD_shift)
-        shifted_mean_y = scale_interval_m1top1(shifted_scaled_y,
-                                               a=PixDomain[0],b=PixDomain[1],inverse_scale=True)
-        y_offset = shifted_mean_y - mean_y
+        if isinstance(Avg_XD_shift[0],(list,tuple)):  # list of list of coefficents
+            y = ApertureCenters[aper][1,:]
+            scaled_y = scale_interval_m1top1(y, a=PixDomain[0],b=PixDomain[1])
+            shifted_scaled_y = np.array([np.polynomial.polynomial.polyval(sy, [np.polynomial.Polynomial(c)(x) for c in Avg_XD_shift]) for x,sy in zip(ApertureCenters[aper][0,:],scaled_y)])
+        else:
+            y = np.nanmedian(ApertureCenters[aper][1,:])  # Calculate the shift the median y value of the trace.
+            scaled_y = scale_interval_m1top1(y, a=PixDomain[0],b=PixDomain[1])
+            shifted_scaled_y = np.polynomial.polynomial.polyval(scaled_y, Avg_XD_shift)
+        shifted_y = scale_interval_m1top1(shifted_scaled_y,
+                                          a=PixDomain[0],b=PixDomain[1],inverse_scale=True)
+        y_offset = shifted_y - y
         ShiftedApertureCenters[aper] = np.copy(ApertureCenters[aper])
         ShiftedApertureCenters[aper][1,:] = ShiftedApertureCenters[aper][1,:] - y_offset
     return ShiftedApertureCenters
@@ -1132,28 +1156,12 @@ def write_2dimage_fitsfile(image_dict,fname=None,outputDirectory=None,fitsheader
 #######################################################################################
 def parse_str_to_types(string):
     """ Converts string to different object types they represent.
-    Supported formats: True,Flase,None,int,float,list,tuple"""
+    Supported formats: True,Flase,None,int,float,list,tuple, anything ast.literal_eval can parse"""
     string = string.strip() # remove any extra white space paddings
-    if string == 'True':
-        return True
-    elif string == 'False':
-        return False
-    elif string == 'None':
-        return None
-    elif string.lstrip('-+ ').isdigit():
-        return int(string)
-    elif (string[0] in '[(') and (string[-1] in ')]'): # Recursively parse a list/tuple into a list
-        if len(string[1:-1]) == 0:
-            return []
-        else:
-            return [parse_str_to_types(s) for s in re.split(r',\s*(?=[^)]*(?:\(|$))', string[1:-1])]  # split at comma unless it is inside a ( )
-    else:
-        try:
-            return float(string)
-        except ValueError:
-            return string
-
-
+    try:
+        return ast.literal_eval(string)
+    except (ValueError,SyntaxError) as e:
+        return string
 
 def create_configdict_from_file(configFilename,listOfConfigSections=None,flattenSections=True):
     """ Returns a configuration object as a dictionary by loading the config file.
@@ -1392,10 +1400,11 @@ def main(raw_args=None):
                 XDshiftmodel = 'p0'
             else:
                 XDshiftmodel = Config['ReFitApertureInXD']
+            DCoeffmodel = Config['DCoeffModelForAperReFit']
             logging.info('ReFitting the XD position of aperture to the spectrum using model {0}'.format(XDshiftmodel))
             # Get the XD shift required between the ContinuumFile based aperture and Spectrum to extract
             Avg_XD_shift, PixDomain = CalculateShiftInXD(SpectrumImage,RefImage=Config['ContinuumFile'],
-                                                         XDshiftmodel=XDshiftmodel,DWindowToUse=Config['ReFitApertureInXD_DWindow'],
+                                                         XDshiftmodel=XDshiftmodel,Coeffmodel=DCoeffmodel,DWindowToUse=Config['ReFitApertureInXD_DWindow'],
                                                          StripWidth=4*Config['AvgHWindow_forTrace'],Apodize=True,
                                                          bkg_medianfilt=Config['ReFitApertureInXD_BkgMedianFilt'],
                                                          dispersion_Xaxis=Config['dispersion_Xaxis'],ShowPlot=Config['ShowPlot_Trace'])
@@ -1427,13 +1436,13 @@ def main(raw_args=None):
             # Plot the center of the trace
             ax.plot(x,ApertureTraceFuncDic[order](x),ls=':',color='r')
             # Plot the Extraction aperture window
-            ax.plot(x,ApertureTraceFuncDic[order](x)+Config['ApertureWindow'][0],color='deeppink')
-            ax.plot(x,ApertureTraceFuncDic[order](x)+Config['ApertureWindow'][1],color='deeppink')
+            ax.plot(x,ApertureTraceFuncDic[order](x)+Config['ApertureWindow'][0],color='cyan')
+            ax.plot(x,ApertureTraceFuncDic[order](x)+Config['ApertureWindow'][1],color='cyan')
             if Config['BkgWindows'] is not None:
                 # Plot the Bkg window
                 for bkgw_offset in np.array(Config['BkgWindows']).flatten():
-                    ax.plot(x,ApertureTraceFuncDic[order](x)+bkgw_offset,ls='--',color='yellowgreen')
-        ax.set_title('Fitted Aperture: Star in Pink & Bkg in YellowGreen')
+                    ax.plot(x,ApertureTraceFuncDic[order](x)+bkgw_offset,ls='--',color='deeppink')
+        ax.set_title('Fitted Aperture: Star in Cyan & Background in Pink')
         ax.set_ylim(ylim)
         plt.show()
     ################################################################################
