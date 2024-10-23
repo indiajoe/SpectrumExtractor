@@ -311,9 +311,10 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
                             newXDCenterList[ic] = XDCenterList[ic] + new_pos_diff
                     # update the Dictionary
                     for i,o in enumerate(LabelList):
-                        FullCoorindateOfTraceDic[o][0].append(newDLoc)
-                        FullCoorindateOfTraceDic[o][1].append(newXDCenterList[i])
-                        FullCoorindateOfTraceDic[o][2].append(max(0.05,newXDCenterList_err[i])) # min error is set to 0.05
+                        if (0 < newXDCenterList[i] < ContinuumFile.shape[0]) and (newXDCenterList_err[i] < 0.5):
+                            FullCoorindateOfTraceDic[o][0].append(newDLoc)
+                            FullCoorindateOfTraceDic[o][1].append(newXDCenterList[i])
+                            FullCoorindateOfTraceDic[o][2].append(max(0.05,newXDCenterList_err[i])) # min error is set to 0.05
 
                     #Change the Reference to the new DLoc position
                     newRefFlux = np.vstack([newpixels,newFlux]).T
@@ -339,8 +340,11 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
 
     if ShowPlot:
         plt.imshow(np.ma.array(ApertureLabel,mask=ApertureLabel==0),cmap='hsv')
-        plt.imshow(np.log(ContinuumFile),alpha=0.5)
+        norm = ImageNormalize(ContinuumFile, interval=PercentileInterval(95.),stretch=SqrtStretch())
+        plt.imshow(ContinuumFile,norm=norm,alpha=0.5)
         plt.colorbar()
+        for o in LabelList:
+            plt.plot(FullCoorindateOfTraceDic[o][0],FullCoorindateOfTraceDic[o][1],marker='.',alpha=0.5,color='k')
         plt.show()
     if return_trace:
         return ApertureLabel, FullCoorindateOfTraceDic
