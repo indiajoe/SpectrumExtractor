@@ -395,7 +395,7 @@ def FitApertureCenters(SpectrumFile,ApertureLabel,apertures=None,
         dpix = np.arange(len(aperCenter))[~aperCenter.mask]
         xdpixCenter = aperCenter[~aperCenter.mask].data
         xdapL2Upix = np.rint(xdpixCenter[:,np.newaxis]+\
-                             np.arange(apwindow[0],apwindow[1]+1) ).astype(np.int) # round of to nearest integer
+                             np.arange(apwindow[0],apwindow[1]+1) ).astype(int) # round of to nearest integer
         # Extrapolate the coordinates at edges of array (for anyway useless orders) at the edge of detector
         xdapL2Upix[xdapL2Upix >= ImageArray.shape[0]] = ImageArray.shape[0]-1
         xdapL2Upix[xdapL2Upix < 0] = 0
