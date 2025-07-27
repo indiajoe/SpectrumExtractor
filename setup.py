@@ -21,7 +21,8 @@ setup(name='SpectrumExtractor',
       license='LGPLv3+',
       packages=['SpectrumExtractor'],
       entry_points = {
-          'console_scripts': ['spectrum_extractor=SpectrumExtractor.spectrum_extractor:main'],
+          'console_scripts': ['spectrum_extractor=SpectrumExtractor.spectrum_extractor:main',
+                              'spectrum_extractor.subtract_scat=SpectrumExtractor.scattered_light_subtraction:main'],
       },
       install_requires=[
           'numpy',
