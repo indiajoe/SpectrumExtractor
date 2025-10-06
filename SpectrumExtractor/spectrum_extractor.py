@@ -535,6 +535,7 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0',Coeffmode
     Splits_RefImage = np.split(RefImage[:,DWindowToUse[0]:DWindowToUse[0]+NoOfXDstripes*StripWidth],NoOfXDstripes,axis=1)
     Indices = list(range(len(Splits_SpectrumImage)))
     # Fit starting at the center where flux will likely be maximum, after finishing to right, return and do towards the left.
+    plt.figure()
     for i in Indices[NoOfXDstripes//2:]+Indices[NoOfXDstripes//2-1::-1]:
         XDSliceSpec = Splits_SpectrumImage[i]
         XDSliceRef = Splits_RefImage[i]
@@ -573,10 +574,10 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0',Coeffmode
             logging.debug('XD offset fit {0}:{1}'.format(i,fitted_driftp))
             XDShiftCoeffDict[centerx] = fitted_driftp
             if ShowPlot:
-                plt.figure()
-                plt.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0],color='k',alpha=0.3)
-                plt.plot(shifted_pixels,SumApFluxSpectrum,color='g',alpha=0.3)
-                plt.show(block=False)
+                # plt.figure()
+                plt.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0],color='k',alpha=0.3, label="Reference aperture position")
+                plt.plot(shifted_pixels,SumApFluxSpectrum,color='g',alpha=0.3, label="Observed aperture position")
+                # plt.show(block=False)
 
     if int(Coeffmodel[1:]) == 0:
         Avg_XD_shift = biweight_location(np.array(list(XDShiftCoeffDict.values())),axis=0)[1:] #remove the flux scale coeff
@@ -589,6 +590,9 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0',Coeffmode
             c = np.polynomial.Polynomial.fit(Dpixelpos, coeff_list, int(Coeffmodel[1:]))
             Avg_XD_shift.append(tuple(c.convert().coef))
     if ShowPlot:
+        handles, labels = plt.gca().get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        plt.legend(by_label.values(), by_label.keys())
         plt.title('{0}:  {1}'.format(tuple(Avg_XD_shift),tuple(DomainRange)))
         plt.xlabel('XD pixels')
         plt.ylabel('Apodized counts')
