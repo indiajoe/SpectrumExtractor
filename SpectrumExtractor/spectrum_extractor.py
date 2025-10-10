@@ -511,7 +511,7 @@ def Get_SlitShearFunction(ApertureCenters):
     return ApertureSlitShearFuncDic
 
 def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0',Coeffmodel='p0', DWindowToUse=None, StripWidth=50,
-                       Apodize=True, bkg_medianfilt=False,dispersion_Xaxis=True,ShowPlot=False):
+                       Apodize=True, bkg_medianfilt=False,dispersion_Xaxis=True,ShowPlot=False, PlotPrifix=None):
     """ Calculates the avg shift in XD to match SpectrumImage to RefImage
     Returns Avg_XD_shift coeffiencts in the domain the XD pixels are scaled to -1 to 1
     if Coeffmodel is pi, where i >0 then an i degree polynomial fit is made to the coefficents of the XDshift model acorss the dispersion pixels"""
@@ -573,10 +573,18 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0',Coeffmode
             logging.debug('XD offset fit {0}:{1}'.format(i,fitted_driftp))
             XDShiftCoeffDict[centerx] = fitted_driftp
             if ShowPlot:
-                plt.figure()
-                plt.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0],color='k',alpha=0.3)
-                plt.plot(shifted_pixels,SumApFluxSpectrum,color='g',alpha=0.3)
-                plt.show(block=False)
+
+                plt.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0],color='k',alpha=0.3, label="Reference aperture position")
+                plt.plot(shifted_pixels,SumApFluxSpectrum,color='g',alpha=0.3, label="Observed aperture position")
+                if PlotPrifix is not None:
+                    fig2, ax2 = plt.subplots(figsize=(8,8))
+                    ax2.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0],color='k',alpha=0.6, label="Reference aperture position")
+                    ax2.plot(shifted_pixels,SumApFluxSpectrum,color='g',alpha=0.6, label="Observed aperture position")
+                    plt.xlabel('XD pixels')
+                    plt.ylabel('Apodized counts')
+                    ax2.legend()
+                    fig2.savefig(PlotPrifix + "_{}.png".format(i))
+                    plt.close(fig2)
 
     if int(Coeffmodel[1:]) == 0:
         Avg_XD_shift = biweight_location(np.array(list(XDShiftCoeffDict.values())),axis=0)[1:] #remove the flux scale coeff
@@ -1291,7 +1299,17 @@ def main(raw_args=None):
         logging.warning('WARNING: Output file {0} already exist'.format(OutputFile))
         logging.warning('Skipping this image extraction..')
         sys.exit(1)
-
+    if Config['ShowPlot_Trace']:
+        parent_dir = os.path.dirname(OutputFile)
+        plot_dir = os.path.join(parent_dir, "ApertureTrace_Plots")
+        if not os.path.exists(plot_dir):
+            os.mkdir(plot_dir)
+        plot_fname = os.path.splitext(os.path.basename(OutputFile))[0]
+        plot_fname = os.path.join(plot_dir, plot_fname)
+    else:
+        plot_fname = None
+        
+        
     ################################################################################
     # Starting Extraction process
     ################################################################################
@@ -1407,7 +1425,7 @@ def main(raw_args=None):
                                                          XDshiftmodel=XDshiftmodel,Coeffmodel=DCoeffmodel,DWindowToUse=Config['ReFitApertureInXD_DWindow'],
                                                          StripWidth=4*Config['AvgHWindow_forTrace'],Apodize=True,
                                                          bkg_medianfilt=Config['ReFitApertureInXD_BkgMedianFilt'],
-                                                         dispersion_Xaxis=Config['dispersion_Xaxis'],ShowPlot=Config['ShowPlot_Trace'])
+                                                         dispersion_Xaxis=Config['dispersion_Xaxis'],ShowPlot=Config['ShowPlot_Trace'],PlotPrifix=plot_fname)
             logging.info('Fitted shift in XD position :{0} in -1to1 domain of {1}'.format(tuple(Avg_XD_shift),tuple(PixDomain)))
         # Apply the XD shift to the aperture centers
         ApertureCenters = ApplyXDshiftToApertureCenters(ApertureCenters,Avg_XD_shift,PixDomain)
@@ -1423,7 +1441,7 @@ def main(raw_args=None):
     if Config['ShowPlot_Trace']:
         norm = ImageNormalize(SpectrumImage, interval=PercentileInterval(95.),
                               stretch=SqrtStretch())
-        fig = plt.figure()
+        fig = plt.figure(figsize=(12,12))
         ax = fig.add_subplot(1, 1, 1)
         if Config['dispersion_Xaxis']:
             im = ax.imshow(SpectrumImage, origin='lower', norm=norm, cmap='gray')
@@ -1444,6 +1462,8 @@ def main(raw_args=None):
                     ax.plot(x,ApertureTraceFuncDic[order](x)+bkgw_offset,ls='--',color='deeppink')
         ax.set_title('Fitted Aperture: Star in Cyan & Background in Pink')
         ax.set_ylim(ylim)
+        plt.tight_layout()
+        plt.savefig(plot_fname + "_Frame.png")
         plt.show()
     ################################################################################
     # Spectral Extraction starts here
