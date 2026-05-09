@@ -1514,7 +1514,11 @@ def main(raw_args=None):
             ApertureLabel = np.load(Config['ApertureLabel'])
         else:
             # ApertureLabel = CreateApertureLabelByThresholding(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],bsize=51,offset=0,minarea=2000, ShowPlot=True,DirectlyEnterRelabel= True)
-            if Config['Mode'] == 'AUTO':
+            try:
+                trace_selection = Config['Mode']
+            except KeyError:
+                trace_selection = 'AUTO'
+            if trace_selection == 'AUTO':
                 print("Automatic mode to create aperture trace")
                 ApertureLabel, ApertureCenters_Trace1 = CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
                                                                                        startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
@@ -1522,7 +1526,7 @@ def main(raw_args=None):
                                                                                        dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=Config['extrapolate_thresh_forTrace'],
                                                                                        extrapolate_order=Config['extrapolate_order_forTrace'], ShowPlot=Config['ShowPlot_Trace'],
                                                                                        return_trace=True)
-            elif Config['Mode'] == 'MANUAL':
+            elif trace_selection == 'MANUAL':
                 print("Manual mode to create aperture trace")
                 ApertureLabel, ApertureCenters_Trace1 = Manual_CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
                                                                                        startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
