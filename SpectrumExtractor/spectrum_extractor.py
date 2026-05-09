@@ -9,6 +9,7 @@ import re
 from astropy.io import fits
 from astropy.stats import mad_std, biweight_location
 from astropy.visualization import MinMaxInterval, SqrtStretch, PercentileInterval, ImageNormalize
+from astropy.modeling import models, fitting
 import matplotlib.pyplot as plt
 from skimage import filters
 from skimage import morphology
@@ -265,7 +266,6 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
 
     # Create a dictionary to save dcoordinates of each order
     FullCoorindateOfTraceDic = {o:[[d],[xd],[xde]] for o,d,xd,xde in zip(LabelList,[startLoc]*len(LabelList),XDCenterList,XDCenterList_err)}
-
     # First step to higher pixels from startLoc position and then step to lower positions
     for stepDLoc in [avgHWindow,-1*avgHWindow]:
         newDLoc = startLoc + max(1,np.abs(stepDLoc)//2)*np.sign(stepDLoc)
@@ -327,6 +327,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
 
     # Finally fit a trace function for each order and create an Aperture Label array
     ApertureLabel = np.zeros(ContinuumFile.shape)
+    print(FullCoorindateOfTraceDic)
     # First conver the dictionary values to a numpy array
     for o in LabelList:
         FullCoorindateOfTraceDic[o] = np.array(FullCoorindateOfTraceDic[o])
@@ -352,6 +353,179 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
     else:
         return ApertureLabel
 
+def Manual_CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,avgHWindow=21,TraceHWidth=5,trace_fit_deg=4,
+                                          extrapolate_thresh=0.4,extrapolate_order=2,
+                                          dispersion_Xaxis=True,ShowPlot=True,return_trace=False):
+    """Creates the Aperture Trace labels by shifting and fitting profiles in Cross dispersion columns """
+    if isinstance(ContinuumFile  ,str):
+        ContinuumFile = fits.getdata(ContinuumFile)
+        if not dispersion_Xaxis:
+            ContinuumFile = ContinuumFile.T
+    if BadPixMask is not None:
+        BPMask = fits.getdata(BadPixMask) if BadPixMask[-5:] == '.fits' else np.load(BadPixMask)
+        if not dispersion_Xaxis:
+            BPMask = BPMask.T
+
+    if startLoc is None:
+        startLoc = ContinuumFile.shape[1]//2
+    # Starting labelling Reference XD cut data
+    RefXD = np.nanmedian(ContinuumFile[:,startLoc-avgHWindow:startLoc+avgHWindow],axis=1)
+    Refpixels = np.arange(len(RefXD))
+    Bkg = signal.order_filter(RefXD,domain=[True]*TraceHWidth*5,rank=int(TraceHWidth*5/10))
+    Flux = np.abs(RefXD -Bkg)
+    ThreshMask = RefXD > (Bkg + np.abs(mad_std(Flux))*6)
+    labeled_array, num_traces = ndimage.label(ThreshMask)
+    logging.info('Detected {0} order traces'.format(num_traces))
+    LabelList = []
+    XDCenterList = []
+    for label in np.sort(np.unique(labeled_array)):
+        if label == 0: # Skip 0 label
+            continue
+        M = labeled_array==label
+        centerpix = np.sum(Flux[M]*Refpixels[M])/np.sum(Flux[M])
+        LabelList.append(label)
+        XDCenterList.append(centerpix)
+    # Refine again using the TraceHWidth window
+    XDCenterList, XDCenterList_err = RefineCentriodsInSignal(Flux,XDCenterList,TraceHWidth,Xpixels=Refpixels)
+
+    if ShowPlot:
+        plt.plot(Refpixels,Flux)
+        plt.plot(Refpixels,labeled_array)
+        plt.plot(XDCenterList,LabelList,'.')
+        plt.xlabel('XD pixels')
+        plt.ylabel('Trace labels')
+        plt.show()
+
+    print('Trace_number     PixelCoord   PixelError')
+    print('\n'.join(['{0}  {1}  {2}'.format(l,p,e) for l,p,e in zip(LabelList,XDCenterList,XDCenterList_err)]))
+
+    print('Create a file with the label names and pixel coords to use.')
+    print('File format should be 3 columns :  OrderLabel PixelCoords PixelError')
+    print('Note: Trace labels should start with 1 and not zero')
+    uinputfile = input('Enter the filename :').strip()
+    if uinputfile: #User provided input
+        with open(uinputfile,'r') as labelchangefile:
+            LabelList = []
+            XDCenterList = []
+            for entry in labelchangefile:
+                if entry[0]=='#':
+                    continue
+                entry = entry.rstrip().split()
+                if len(entry)<2:
+                    continue
+                LabelList.append(int(entry[0]))
+                XDCenterList.append(float(entry[1]))
+                XDCenterList_err.append(float(entry[2]))
+        if ShowPlot:
+            print('New labelled traces')
+            plt.plot(Refpixels,Flux)
+            plt.plot(Refpixels,labeled_array)
+            plt.plot(XDCenterList,LabelList,'.')
+            plt.xlabel('XD pixels')
+            plt.ylabel('New Trace labels')
+            plt.show()
+
+    else:
+        print('No input given. No relabelling done..')
+
+    # Create a index list sorted by the pixel error as a proxy for brightness and goodness of the line to use for extrapolation
+    SortedErrorIndices = np.argsort(XDCenterList_err)
+
+    # Now start fitting the XD cut plot across the dispersion
+
+    # Create a dictionary to save dcoordinates of each order
+    FullCoorindateOfTraceDic = {o:[[d],[xd],[xde]] for o,d,xd,xde in zip(LabelList,[startLoc]*len(LabelList),XDCenterList,XDCenterList_err)}
+    # First step to higher pixels from startLoc position and then step to lower positions
+    # Add things here.
+    # Finally fit a trace function for each order and create an Aperture Label array
+    ApertureLabel = np.zeros(ContinuumFile.shape)
+    for o, point in FullCoorindateOfTraceDic.items():
+        fig, axs = plt.subplots()
+        norm = ImageNormalize(ContinuumFile, interval=PercentileInterval(95.),stretch=SqrtStretch())
+        axs.imshow(ContinuumFile,norm=norm, origin="lower")
+        axs.errorbar(point[0], point[1], yerr=point[2], fmt='o', color='red', ecolor='red')
+        axs.set_title("Select points for aperture {}\n Press 'a' on keyboard and click on required point.".format(o))
+
+        def onclick(event):
+            toolbar = fig.canvas.toolbar
+
+            if toolbar.mode != '':
+                return
+            
+            if event.inaxes != axs:
+                return
+
+            xdata, ydata = int(round(event.xdata,0)), event.ydata
+
+            width = 10
+            axs.plot([xdata, xdata], [ydata-width, ydata+width], color='black')
+            raw_profile = ContinuumFile[int(ydata)-width:int(ydata)+width, xdata]
+            x, counts, fitted_counts, g_fit = fit_gaussian_profile(raw_profile)
+            plt.figure()
+            plt.plot(raw_profile)
+            plt.plot(x, fitted_counts, label="Gaussian fit", linestyle="--")
+            plt.annotate(
+                f"fwhm : {2.355*g_fit.stddev.value:.3f} pix \n mean: {ydata-width+g_fit.mean.value:.3f}",
+                xy=(0, 1),
+                xycoords="axes fraction",
+                xytext=(10, 10),
+                textcoords='offset points',
+                color='black',
+                fontsize=9,
+                bbox=dict(boxstyle='round, pad=0.3', fc='white', alpha=0.5)
+                )
+            plt.show(block=False)
+            y_center = ydata-width+g_fit.mean.value
+            axs.plot(xdata, y_center, 'ok')
+            point[0].append(xdata)
+            point[1].append(y_center)
+            point[2].append(g_fit.stddev.value)
+        fig.canvas.mpl_connect("button_press_event", onclick)
+        FullCoorindateOfTraceDic[o] = point
+        plt.show()
+    # First conver the dictionary values to a numpy array
+    print("Manual selection of trace is completed")
+    for o in LabelList:
+        FullCoorindateOfTraceDic[o] = np.array(FullCoorindateOfTraceDic[o])
+    pix_scale_function = partial(scale_interval_m1top1,a=0,b=ContinuumFile.shape[1])
+    ApertureTraceFuncDic = Get_ApertureTraceFunction(FullCoorindateOfTraceDic,deg=trace_fit_deg,domain_scale_function=pix_scale_function)
+    # Now loop through each trace for setting the label
+    for o in reversed(sorted(LabelList)):
+        boundinside = partial(boundvalue,ll=0,ul=ApertureLabel.shape[0])
+        for j in np.arange(ApertureLabel.shape[1]):
+            mini,maxi = int(np.rint(boundinside(ApertureTraceFuncDic[o](j)-TraceHWidth))), int(np.rint(boundinside(ApertureTraceFuncDic[o](j)+TraceHWidth+1)))
+            ApertureLabel[mini:maxi,j] = o
+
+    if ShowPlot:
+        plt.imshow(np.ma.array(ApertureLabel,mask=ApertureLabel==0),cmap='hsv')
+        norm = ImageNormalize(ContinuumFile, interval=PercentileInterval(95.),stretch=SqrtStretch())
+        plt.imshow(ContinuumFile,norm=norm,alpha=0.5)
+        plt.colorbar()
+        for o in LabelList:
+            plt.plot(FullCoorindateOfTraceDic[o][0],FullCoorindateOfTraceDic[o][1],marker='.',alpha=0.5,color='k')
+        plt.show()
+    if return_trace:
+        return ApertureLabel, FullCoorindateOfTraceDic
+    else:
+        return ApertureLabel
+
+
+def fit_gaussian_profile(counts):
+    x = np.arange(len(counts))
+
+    # Initial guess: amplitude, mean, stddev
+    amplitude_guess = np.max(counts) - np.min(counts)
+    mean_guess = np.argmax(counts)
+    stddev_guess = len(counts) / 4
+
+    g_init = models.Gaussian1D(amplitude=amplitude_guess,
+                               mean=mean_guess,
+                               stddev=stddev_guess)
+    fit_g = fitting.LevMarLSQFitter()
+
+    g_fit = fit_g(g_init, x, counts)
+
+    return x, counts, g_fit(x), g_fit
 
 
 def errorfuncProfileFit(p,psf=None,xdata=None, ydata=None):
@@ -1318,12 +1492,23 @@ def main(raw_args=None):
             ApertureLabel = np.load(Config['ApertureLabel'])
         else:
             # ApertureLabel = CreateApertureLabelByThresholding(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],bsize=51,offset=0,minarea=2000, ShowPlot=True,DirectlyEnterRelabel= True)
-            ApertureLabel, ApertureCenters_Trace1 = CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
-                                                                                   startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
-                                                                                   TraceHWidth=Config['HWidth_inXD'],trace_fit_deg=Config['ApertureTraceFuncDegree'],
-                                                                                   dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=Config['extrapolate_thresh_forTrace'],
-                                                                                   extrapolate_order=Config['extrapolate_order_forTrace'], ShowPlot=Config['ShowPlot_Trace'],
-                                                                                   return_trace=True)
+            if Config['Mode'] == 'AUTO':
+                print("Automatic mode to create aperture trace")
+                ApertureLabel, ApertureCenters_Trace1 = CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
+                                                                                       startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
+                                                                                       TraceHWidth=Config['HWidth_inXD'],trace_fit_deg=Config['ApertureTraceFuncDegree'],
+                                                                                       dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=Config['extrapolate_thresh_forTrace'],
+                                                                                       extrapolate_order=Config['extrapolate_order_forTrace'], ShowPlot=Config['ShowPlot_Trace'],
+                                                                                       return_trace=True)
+            elif Config['Mode'] == 'MANUAL':
+                print("Manual mode to create aperture trace")
+                ApertureLabel, ApertureCenters_Trace1 = Manual_CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
+                                                                                       startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
+                                                                                       TraceHWidth=Config['HWidth_inXD'],trace_fit_deg=Config['ApertureTraceFuncDegree'],
+                                                                                       dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=Config['extrapolate_thresh_forTrace'],
+                                                                                       extrapolate_order=Config['extrapolate_order_forTrace'], ShowPlot=Config['ShowPlot_Trace'],
+                                                                                       return_trace=True)
+
             # Save the aperture label if a non existing filename was provided as input
             if isinstance(Config['ApertureLabel'],str):
                 np.save(Config['ApertureLabel'],ApertureLabel)
