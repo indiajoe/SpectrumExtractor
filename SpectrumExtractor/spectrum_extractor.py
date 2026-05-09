@@ -444,7 +444,7 @@ def Manual_CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc
         norm = ImageNormalize(ContinuumFile, interval=PercentileInterval(95.),stretch=SqrtStretch())
         axs.imshow(ContinuumFile,norm=norm, origin="lower")
         axs.errorbar(point[0], point[1], yerr=point[2], fmt='o', color='red', ecolor='red')
-        axs.set_title("Select points for aperture {}\n Press 'a' on keyboard and click on required point.".format(o))
+        axs.set_title("Select points for aperture {}".format(o))
 
         def onclick(event):
             toolbar = fig.canvas.toolbar
