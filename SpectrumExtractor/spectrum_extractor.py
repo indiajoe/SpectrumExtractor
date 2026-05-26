@@ -511,7 +511,7 @@ def Get_SlitShearFunction(ApertureCenters):
     return ApertureSlitShearFuncDic
 
 def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0',Coeffmodel='p0', DWindowToUse=None, StripWidth=50,
-                       Apodize=True, bkg_medianfilt=False,dispersion_Xaxis=True,ShowPlot=False, PlotPrifix=None):
+                       Apodize=True, bkg_medianfilt=False,dispersion_Xaxis=True,ShowPlot=False, PlotPrefix=None):
     """ Calculates the avg shift in XD to match SpectrumImage to RefImage
     Returns Avg_XD_shift coeffiencts in the domain the XD pixels are scaled to -1 to 1
     if Coeffmodel is pi, where i >0 then an i degree polynomial fit is made to the coefficents of the XDshift model acorss the dispersion pixels"""
@@ -576,14 +576,14 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0',Coeffmode
 
                 plt.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0],color='k',alpha=0.3, label="Reference aperture position")
                 plt.plot(shifted_pixels,SumApFluxSpectrum,color='g',alpha=0.3, label="Observed aperture position")
-                if PlotPrifix is not None:
+                if PlotPrefix is not None:
                     fig2, ax2 = plt.subplots(figsize=(8,8))
                     ax2.plot(newRefFlux[:,0],newRefFlux[:,1]*fitted_driftp[0],color='k',alpha=0.6, label="Reference aperture position")
                     ax2.plot(shifted_pixels,SumApFluxSpectrum,color='g',alpha=0.6, label="Observed aperture position")
                     plt.xlabel('XD pixels')
                     plt.ylabel('Apodized counts')
                     ax2.legend()
-                    fig2.savefig(PlotPrifix + "_{}.png".format(i))
+                    fig2.savefig(PlotPrefix + "_{}.png".format(i))
                     plt.close(fig2)
 
     if int(Coeffmodel[1:]) == 0:
@@ -1425,7 +1425,7 @@ def main(raw_args=None):
                                                          XDshiftmodel=XDshiftmodel,Coeffmodel=DCoeffmodel,DWindowToUse=Config['ReFitApertureInXD_DWindow'],
                                                          StripWidth=4*Config['AvgHWindow_forTrace'],Apodize=True,
                                                          bkg_medianfilt=Config['ReFitApertureInXD_BkgMedianFilt'],
-                                                         dispersion_Xaxis=Config['dispersion_Xaxis'],ShowPlot=Config['ShowPlot_Trace'],PlotPrifix=plot_fname)
+                                                         dispersion_Xaxis=Config['dispersion_Xaxis'],ShowPlot=Config['ShowPlot_Trace'],PlotPrefix=plot_fname)
             logging.info('Fitted shift in XD position :{0} in -1to1 domain of {1}'.format(tuple(Avg_XD_shift),tuple(PixDomain)))
         # Apply the XD shift to the aperture centers
         ApertureCenters = ApplyXDshiftToApertureCenters(ApertureCenters,Avg_XD_shift,PixDomain)
