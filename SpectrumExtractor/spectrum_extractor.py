@@ -1409,22 +1409,14 @@ def main(raw_args=None):
                 trace_selection = Config['Mode']
             except KeyError:
                 trace_selection = 'AUTO'
-            if trace_selection == 'AUTO':
-                print("Automatic mode to create aperture trace")
-                ApertureLabel, ApertureCenters_Trace1 = CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
-                                                                                       startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
-                                                                                       TraceHWidth=Config['HWidth_inXD'],trace_fit_deg=Config['ApertureTraceFuncDegree'],
-                                                                                       dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=Config['extrapolate_thresh_forTrace'],
-                                                                                       extrapolate_order=Config['extrapolate_order_forTrace'], ShowPlot=Config['ShowPlot_Trace'],
-                                                                                       return_trace=True)
-            elif trace_selection == 'MANUAL':
-                print("Manual mode to create aperture trace")
-                ApertureLabel, ApertureCenters_Trace1 = Manual_CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
-                                                                                       startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
-                                                                                       TraceHWidth=Config['HWidth_inXD'],trace_fit_deg=Config['ApertureTraceFuncDegree'],
-                                                                                       dispersion_Xaxis=Config['dispersion_Xaxis'],extrapolate_thresh=Config['extrapolate_thresh_forTrace'],
-                                                                                       extrapolate_order=Config['extrapolate_order_forTrace'], ShowPlot=Config['ShowPlot_Trace'],
-                                                                                       return_trace=True)
+            ApertureLabel, ApertureCenters_Trace1 = CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
+                                                                                   startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
+                                                                                   TraceHWidth=Config['HWidth_inXD'],trace_fit_deg=Config['ApertureTraceFuncDegree'],
+                                                                                   dispersion_Xaxis=Config['dispersion_Xaxis'],
+                                                                                   extrapolate_thresh=Config['extrapolate_thresh_forTrace'],
+                                                                                   extrapolate_order=Config['extrapolate_order_forTrace'], ShowPlot=Config['ShowPlot_Trace'],
+                                                                                   return_trace=True,
+                                                                                   mode=trace_selection)
 
             # Save the aperture label if a non existing filename was provided as input
             if isinstance(Config['ApertureLabel'],str):
