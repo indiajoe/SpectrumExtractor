@@ -249,7 +249,8 @@ def ApertureFit_auto(ContinuumFile,Flux,XDCenterList,LabelList,startLoc,FullCoor
 
 def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,avgHWindow=21,TraceHWidth=5,trace_fit_deg=4,
                                    extrapolate_thresh=0.4,extrapolate_order=2,
-                                   dispersion_Xaxis=True,ShowPlot=True,return_trace=False):
+                                   dispersion_Xaxis=True,ShowPlot=True,return_trace=False,
+                                   mode="AUTO"):
     """Creates the Aperture Trace labels by shifting and fitting profiles in Cross dispersion columns """
     if isinstance(ContinuumFile  ,str):
         ContinuumFile = fits.getdata(ContinuumFile)
