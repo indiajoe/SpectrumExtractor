@@ -396,6 +396,8 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
         print("Manually selecting the apertures.")
         FullCoorindateOfTraceDic = ApertureFit_manual(ContinuumFile=ContinuumFile,
                                                       FullCoorindateOfTraceDic=FullCoorindateOfTraceDic)
+    else:
+        raise ValueError("mode must be 'AUTO' or 'MANUAL'")
 
     ApertureLabel = np.zeros(ContinuumFile.shape)
 
