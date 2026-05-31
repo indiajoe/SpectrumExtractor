@@ -381,6 +381,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
     # Create a dictionary to save dcoordinates of each order
     FullCoorindateOfTraceDic = {o:[[d],[xd],[xde]] for o,d,xd,xde in zip(LabelList,[startLoc]*len(LabelList),XDCenterList,XDCenterList_err)}
     # First step to higher pixels from startLoc position and then step to lower positions
+    mode = str(mode).strip().upper()
     if mode == "AUTO":
         print("Automatically selecting the apertures.")
         FullCoorindateOfTraceDic = ApertureFit_auto(ContinuumFile=ContinuumFile,
