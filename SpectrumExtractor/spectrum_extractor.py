@@ -266,7 +266,9 @@ def ApertureFit_manual(ContinuumFile,
 
             if event.xdata is None or event.ydata is None:
                 return
-            xdata, ydata = int(round(event.xdata,0)), event.ydata
+
+            xdata = int(round(event.xdata, 0))
+            ydata = float(event.ydata)
             
             width = 10
             axs.plot([xdata, xdata], [ydata-width, ydata+width], color='black')
