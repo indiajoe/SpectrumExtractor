@@ -264,8 +264,10 @@ def ApertureFit_manual(ContinuumFile,
             if event.inaxes != axs:
                 return
 
+            if event.xdata is None or event.ydata is None:
+                return
             xdata, ydata = int(round(event.xdata,0)), event.ydata
-
+            
             width = 10
             axs.plot([xdata, xdata], [ydata-width, ydata+width], color='black')
             raw_profile = ContinuumFile[int(ydata)-width:int(ydata)+width, xdata]
