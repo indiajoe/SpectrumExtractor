@@ -537,7 +537,10 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0',Coeffmode
     Splits_RefImage = np.split(RefImage[:,DWindowToUse[0]:DWindowToUse[0]+NoOfXDstripes*StripWidth],NoOfXDstripes,axis=1)
     Indices = list(range(len(Splits_SpectrumImage)))
     # Fit starting at the center where flux will likely be maximum, after finishing to right, return and do towards the left.
-    if PlotPrefix is not None:
+    pdf = None
+    if ShowPlot:
+        plt.figure(figsize=(12, 12))
+    if ShowPlot and PlotPrefix is not None:
         pdf = PdfPages(PlotPrefix + "_allplots.pdf")
     for i in Indices[NoOfXDstripes//2:]+Indices[NoOfXDstripes//2-1::-1]:
         XDSliceSpec = Splits_SpectrumImage[i]
