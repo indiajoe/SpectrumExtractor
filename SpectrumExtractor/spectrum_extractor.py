@@ -256,11 +256,11 @@ def ApertureFit_manual(ContinuumFile,
         axs.set_title("Select points for aperture {}".format(o))
 
         def onclick(event):
-            toolbar = fig.canvas.toolbar
+            toolbar = getattr(fig.canvas.toolbar, "toolbar", None)
 
-            if toolbar.mode != '':
+            if toolbar is not None and getattr(toolbar, "mode", "") != "":
                 return
-            
+
             if event.inaxes != axs:
                 return
 
