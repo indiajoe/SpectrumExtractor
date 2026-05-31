@@ -292,7 +292,7 @@ def ApertureFit_manual(ContinuumFile,Flux,
         fig.canvas.mpl_connect("button_press_event", onclick)
         FullCoorindateOfTraceDic[o] = point
         plt.show()
-    # First conver the dictionary values to a numpy array
+    # First convert the dictionary values to a numpy array
     print("Manual selection of trace is completed")
     return FullCoorindateOfTraceDic
 
