@@ -1308,8 +1308,7 @@ def main(raw_args=None):
     if Config['ShowPlot_Trace']:
         parent_dir = os.path.dirname(OutputFile)
         plot_dir = os.path.join(parent_dir, "ApertureTrace_Plots")
-        if not os.path.exists(plot_dir):
-            os.mkdir(plot_dir)
+        os.makedirs(plot_dir, exist_ok=True)
         plot_fname = os.path.splitext(os.path.basename(OutputFile))[0]
         plot_fname = os.path.join(plot_dir, plot_fname)
     else:
