@@ -269,10 +269,16 @@ def ApertureFit_manual(ContinuumFile,
 
             xdata = int(round(event.xdata, 0))
             ydata = float(event.ydata)
-            
+
             width = 10
+            xdata = max(0, min(xdata, ContinuumFile.shape[1] - 1))
+            y0 = max(0, int(ydata) - width)
+            y1 = min(ContinuumFile.shape[0], int(ydata) + width)
+            if y1 - y0 < 3:
+                return
+
             axs.plot([xdata, xdata], [ydata-width, ydata+width], color='black')
-            raw_profile = ContinuumFile[int(ydata)-width:int(ydata)+width, xdata]
+            raw_profile = ContinuumFile[y0:y1, xdata]
             x, counts, fitted_counts, g_fit = fit_gaussian_profile(raw_profile)
             plt.figure()
             plt.plot(raw_profile)
