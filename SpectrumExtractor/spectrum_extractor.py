@@ -246,7 +246,7 @@ def ApertureFit_auto(ContinuumFile,Flux,XDCenterList,LabelList,startLoc,FullCoor
                 newDLoc = newDLoc + max(1,np.abs(stepDLoc)//2)*np.sign(stepDLoc)
     return FullCoorindateOfTraceDic
 
-def ApertureFit_manual(ContinuumFile,Flux,
+def ApertureFit_manual(ContinuumFile,
                        FullCoorindateOfTraceDic):
     for o, point in FullCoorindateOfTraceDic.items():
         fig, axs = plt.subplots()
@@ -393,7 +393,7 @@ def CreateApertureLabelByXDFitting(ContinuumFile,BadPixMask=None,startLoc=None,a
                                                     extrapolate_order=extrapolate_order)
     elif mode == "MANUAL":
         print("Manually selecting the apertures.")
-        FullCoorindateOfTraceDic = ApertureFit_manual(ContinuumFile=ContinuumFile,Flux=Flux,
+        FullCoorindateOfTraceDic = ApertureFit_manual(ContinuumFile=ContinuumFile,
                                                       FullCoorindateOfTraceDic=FullCoorindateOfTraceDic)
 
     ApertureLabel = np.zeros(ContinuumFile.shape)
