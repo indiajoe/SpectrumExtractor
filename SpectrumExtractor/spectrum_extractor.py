@@ -587,7 +587,7 @@ def CalculateShiftInXD(SpectrumImage, RefImage=None, XDshiftmodel='p0',Coeffmode
                     ax2.set_xlabel('XD pixels')
                     ax2.set_ylabel('Apodized counts')
                     ax2.legend()
-                    pdf.savefig()
+                    pdf.savefig(fig2)
                     plt.close(fig2)
 
     if int(Coeffmodel[1:]) == 0:
