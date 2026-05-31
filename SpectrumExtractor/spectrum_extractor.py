@@ -1405,10 +1405,7 @@ def main(raw_args=None):
             ApertureLabel = np.load(Config['ApertureLabel'])
         else:
             # ApertureLabel = CreateApertureLabelByThresholding(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],bsize=51,offset=0,minarea=2000, ShowPlot=True,DirectlyEnterRelabel= True)
-            try:
-                trace_selection = Config['Mode']
-            except KeyError:
-                trace_selection = 'AUTO'
+            trace_selection = str(Config.get('Mode', 'AUTO')).strip().upper()
             ApertureLabel, ApertureCenters_Trace1 = CreateApertureLabelByXDFitting(Config['ContinuumFile'],BadPixMask=Config['BadPixMask'],
                                                                                    startLoc=Config['Start_Location'],avgHWindow=Config['AvgHWindow_forTrace'],
                                                                                    TraceHWidth=Config['HWidth_inXD'],trace_fit_deg=Config['ApertureTraceFuncDegree'],
