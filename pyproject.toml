@@ -45,3 +45,4 @@ Repository = "https://github.com/indiajoe/SpectrumExtractor"
 
 [project.scripts]
 spectrum_extractor = "SpectrumExtractor.spectrum_extractor:main"
+"spectrum_extractor.subtract_scat" = "SpectrumExtractor.scattered_light_subtraction:main"
